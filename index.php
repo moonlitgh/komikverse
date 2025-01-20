@@ -303,27 +303,93 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                 opacity: 0;
             }
         }
+
+        .trending-btn {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            background: rgba(244, 44, 29, 0.1);
+            color: #F42C1D;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .trending-btn.active {
+            background: #F42C1D;
+            color: white;
+        }
+
+        .trending-btn:hover {
+            background: #F42C1D;
+            color: white;
+        }
     </style>
 </head>
 <body class="bg-dark font-main text-gray-200">
     <!-- Navbar -->
-    <nav class="bg-dark/90 backdrop-blur-md border-b border-wine/30 fixed w-full z-50">
+    <nav class="fixed top-0 left-0 right-0 bg-dark/95 border-b border-wine/30 z-50">
         <div class="container mx-auto px-4">
-            <div class="flex justify-between items-center py-4">
-                <div class="flex items-center space-x-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-flame" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                    <span class="text-2xl font-bold font-fantasy flame-text">DarkVerse</span>
-                </div>
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="index.php" class="text-2xl font-fantasy flame-text">DarkVerse</a>
+                
+                <!-- Navigation -->
                 <div class="hidden md:flex items-center space-x-8">
-                    <a href="index.php" class="text-gray-400 hover:text-flame transition-colors">Home</a>
-                    <a href="collection.php" class="text-gray-400 hover:text-flame transition-colors">Collection</a>
-                    <a href="genre.php" class="text-gray-400 hover:text-flame transition-colors">Genre</a>
-                    <a href="latest.php" class="text-gray-400 hover:text-flame transition-colors">Latest</a>
+                    <a href="index.php" class="text-gray-300 hover:text-flame">Home</a>
+                    <a href="collection.php" class="text-gray-300 hover:text-flame">Collection</a>
+                    <a href="genre.php" class="text-gray-300 hover:text-flame">Genres</a>
+                    <a href="latest.php" class="text-gray-300 hover:text-flame">Latest</a>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <button class="btn-glow bg-blood text-white px-6 py-2 rounded hover:bg-crimson transition-colors">Login</button>
+
+                <!-- Search & Auth -->
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            placeholder="Search comics..." 
+                            class="bg-dark/50 border border-wine/30 rounded-lg pl-4 pr-10 py-1 focus:outline-none focus:border-flame w-48"
+                        >
+                        <button class="absolute right-3 top-1/2 -translate-y-1/2">
+                            🔍
+                        </button>
+                    </div>
+
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <!-- User is logged in -->
+                        <div class="relative group">
+                            <button class="flex items-center gap-2 hover:text-flame">
+                                <img 
+                                    src="assets/images/avatars/<?= htmlspecialchars($_SESSION['avatar']) ?>" 
+                                    alt="Avatar" 
+                                    class="w-8 h-8 rounded-full border border-wine/30"
+                                >
+                                <span><?= htmlspecialchars($_SESSION['username']) ?></span>
+                            </button>
+                            <!-- Dropdown Menu -->
+                            <div class="absolute right-0 mt-2 w-48 bg-dark border border-wine/30 rounded-lg shadow-lg py-2 hidden group-hover:block">
+                                <a href="user/dashboard.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Dashboard
+                                </a>
+                                <a href="user/profile.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Profile
+                                </a>
+                                <a href="user/library.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    My Library
+                                </a>
+                                <hr class="my-2 border-wine/30">
+                                <a href="logout.php" class="block px-4 py-2 text-flame hover:bg-wine/20">
+                                    Logout
+                                </a>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <!-- User is not logged in -->
+                        <div class="flex items-center gap-4">
+                            <a href="login.php" class="text-gray-300 hover:text-flame">Login</a>
+                            <a href="register.php" class="bg-flame text-white px-4 py-1 rounded-lg hover:bg-crimson transition-colors">
+                                Sign Up
+                            </a>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -358,7 +424,8 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
             <h2 class="text-3xl font-bold mb-8 flame-text text-center font-fantasy">Hot Comics</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <?php foreach ($hotComics as $comic): ?>
-                    <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                    <a href="comic-detail.php?id=<?= $comic['comic_id'] ?>" 
+                       class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
                         <div class="relative">
                             <img 
                                 src="assets/images/comics/<?= htmlspecialchars($comic['cover_image']) ?>" 
@@ -372,18 +439,20 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                             <p class="text-gray-400 text-sm mb-2"><?= htmlspecialchars($comic['author']) ?></p>
                             <div class="flex items-center justify-between">
                                 <?php 
-                                $genreArray = explode(',', $comic['genres']);
-                                $firstGenre = reset($genreArray);
+                                if (!empty($comic['genres'])) {
+                                    $genreArray = explode(',', $comic['genres']);
+                                    $firstGenre = reset($genreArray);
+                                }
                                 ?>
                                 <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
-                                    <?= htmlspecialchars($firstGenre) ?>
+                                    <?= !empty($firstGenre) ? htmlspecialchars($firstGenre) : 'N/A' ?>
                                 </span>
                                 <span class="text-gray-400 text-sm">
                                     <?= $comic['rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['rating'], 1) ?>
                                 </span>
                             </div>
                         </div>
-                    </div>
+                    </a>
                 <?php endforeach; ?>
             </div>
         </div>
@@ -398,7 +467,8 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                     <h2 class="text-3xl font-bold mb-6 flame-text font-fantasy">Latest Updates</h2>
                     <div class="space-y-4">
                         <?php foreach ($latestUpdates as $update): ?>
-                            <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
+                            <a href="comic-detail.php?id=<?= $update['comic_id'] ?>" 
+                               class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
                                 <img 
                                     src="assets/cover/<?= htmlspecialchars($update['cover_image']) ?>" 
                                     alt="<?= htmlspecialchars($update['title']) ?>" 
@@ -413,37 +483,53 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                                         Added <?= formatDate($update['created_at']) ?>
                                     </p>
                                 </div>
-                            </div>
+                            </a>
                         <?php endforeach; ?>
                     </div>
                 </div>
 
                 <!-- Trending Comics -->
                 <div>
-                    <h2 class="text-3xl font-bold mb-6 flame-text font-fantasy">Trending</h2>
-                    <div class="space-y-4">
-                        <?php foreach ($trendingComics as $index => $comic): ?>
-                            <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
-                                <div class="flex items-center justify-center w-8">
-                                    <span class="text-flame font-bold"><?= $index + 1 ?></span>
+                    <div class="flex justify-between items-center mb-8">
+                        <h2 class="text-3xl font-bold flame-text font-fantasy">Trending Comics</h2>
+                        <div class="flex gap-4">
+                            <button id="dailyBtn" class="trending-btn active" data-period="daily">Daily</button>
+                            <button id="weeklyBtn" class="trending-btn" data-period="weekly">Weekly</button>
+                            <button id="monthlyBtn" class="trending-btn" data-period="monthly">Monthly</button>
+                        </div>
+                    </div>
+
+                    <div id="trendingComics" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
+                        <?php 
+                        try {
+                            $trendingComics = getTrendingComics('daily');
+                            foreach ($trendingComics as $index => $comic): 
+                        ?>
+                            <a href="comic-detail.php?id=<?= $comic['comic_id'] ?>" 
+                               class="card-hover relative bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                                <?php if ($index < 3): ?>
+                                    <div class="absolute top-2 left-2 w-8 h-8 bg-flame rounded-full flex items-center justify-center text-white font-bold">
+                                        #<?= $index + 1 ?>
+                                    </div>
+                                <?php endif; ?>
+                                <div class="relative aspect-[3/4]">
+                                    <img src="assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
+                                         alt="<?= htmlspecialchars($comic['title']) ?>"
+                                         class="w-full h-full object-cover">
                                 </div>
-                                <img 
-                                    src="assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
-                                    alt="<?= htmlspecialchars($comic['title']) ?>" 
-                                    class="w-20 h-28 object-cover rounded"
-                                >
-                                <div class="flex-1">
-                                    <h3 class="font-semibold text-flame mb-1"><?= htmlspecialchars($comic['title']) ?></h3>
-                                    <p class="text-gray-400 text-sm mb-1"><?= htmlspecialchars($comic['author']) ?></p>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-xs text-gray-400">
-                                            <?= $comic['rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['rating'], 1) ?>
-                                        </span>
-                                        <span class="text-xs text-flame">▲ <?= $comic['daily_views'] ?> today</span>
+                                <div class="p-4">
+                                    <h3 class="font-semibold text-flame mb-2"><?= htmlspecialchars($comic['title']) ?></h3>
+                                    <div class="flex items-center justify-between text-sm text-gray-400">
+                                        <span><?= number_format($comic['period_views'] ?? 0) ?> views</span>
                                     </div>
                                 </div>
-                            </div>
-                        <?php endforeach; ?>
+                            </a>
+                        <?php 
+                            endforeach;
+                        } catch (Exception $e) {
+                            error_log("Error loading trending comics: " . $e->getMessage());
+                        }
+                        ?>
                     </div>
                 </div>
             </div>
@@ -573,6 +659,34 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
             // Create elements periodically
             setInterval(createSkull, 2000);
             setInterval(createRaven, 3000);
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const trendingBtns = document.querySelectorAll('.trending-btn');
+            
+            trendingBtns.forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const period = this.dataset.period;
+                    
+                    // Update active state
+                    trendingBtns.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    try {
+                        const response = await fetch(`api/trending.php?period=${period}`);
+                        if (!response.ok) throw new Error('Network response was not ok');
+                        
+                        const data = await response.json();
+                        if (data.status === 'success' && data.html) {
+                            document.getElementById('trendingComics').innerHTML = data.html;
+                        } else {
+                            console.error('Invalid response format:', data);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching trending comics:', error);
+                    }
+                });
+            });
         });
     </script>
 </body>

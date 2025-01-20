@@ -1,54 +1,116 @@
 <?php
 require_once 'config.php';
 
-// Handle filter by genre
-$selectedGenre = isset($_GET['genre']) ? sanitize($_GET['genre']) : '';
-$searchQuery = isset($_GET['search']) ? sanitize($_GET['search']) : '';
+// Get all available genres for filter
+$genres = fetchAll("SELECT * FROM genres ORDER BY name") ?? [];
 
-// Base query
-$baseQuery = "
-    SELECT 
-        c.*,
-        GROUP_CONCAT(DISTINCT g.name) as genres,
-        COUNT(DISTINCT ch.chapter_id) as chapter_count,
-        AVG(r.rating) as avg_rating
-    FROM comics c
-    LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
-    LEFT JOIN genres g ON cg.genre_id = g.genre_id
-    LEFT JOIN chapters ch ON c.comic_id = ch.comic_id
-    LEFT JOIN ratings r ON c.comic_id = r.comic_id
-";
+// Get search parameters with default values
+$search = $_GET['q'] ?? '';
+$selectedGenres = isset($_GET['genres']) && is_array($_GET['genres']) ? $_GET['genres'] : [];
+$status = $_GET['status'] ?? '';
+$sort = $_GET['sort'] ?? 'latest';
+$rating = $_GET['rating'] ?? '';
+$page = max(1, intval($_GET['page'] ?? 1));
+$perPage = 20;
 
-// Add WHERE clause based on filters
-$whereConditions = [];
-$params = [];
+// Build the base query with error handling
+try {
+    $query = "
+        SELECT DISTINCT
+            c.*,
+            GROUP_CONCAT(DISTINCT g.name) as genres,
+            COALESCE(AVG(r.rating), 0) as avg_rating,
+            COUNT(DISTINCT ch.chapter_id) as chapter_count
+        FROM comics c
+        LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+        LEFT JOIN genres g ON cg.genre_id = g.genre_id
+        LEFT JOIN ratings r ON c.comic_id = r.comic_id
+        LEFT JOIN chapters ch ON c.comic_id = ch.comic_id
+        WHERE 1=1
+    ";
 
-if ($selectedGenre) {
-    $whereConditions[] = "EXISTS (
-        SELECT 1 FROM comic_genres cg2 
-        JOIN genres g2 ON cg2.genre_id = g2.genre_id 
-        WHERE cg2.comic_id = c.comic_id AND g2.name = ?
-    )";
-    $params[] = $selectedGenre;
+    $params = [];
+
+    // Add search condition
+    if (!empty($search)) {
+        $query .= " AND (c.title LIKE ? OR c.description LIKE ?)";
+        $params[] = "%$search%";
+        $params[] = "%$search%";
+    }
+
+    // Add genre filter with error handling
+    if (!empty($selectedGenres)) {
+        $validGenres = array_filter($selectedGenres); // Remove empty values
+        if (!empty($validGenres)) {
+            $placeholders = str_repeat('?,', count($validGenres) - 1) . '?';
+            $query .= " AND c.comic_id IN (
+                SELECT comic_id 
+                FROM comic_genres cg2 
+                JOIN genres g2 ON cg2.genre_id = g2.genre_id 
+                WHERE g2.name IN ($placeholders)
+                GROUP BY comic_id 
+                HAVING COUNT(DISTINCT g2.genre_id) = ?
+            )";
+            $params = array_merge($params, $validGenres);
+            $params[] = count($validGenres);
+        }
+    }
+
+    // Add status filter
+    if (!empty($status)) {
+        $query .= " AND c.status = ?";
+        $params[] = $status;
+    }
+
+    // Add rating filter
+    if (!empty($rating)) {
+        $query .= " AND (SELECT COALESCE(AVG(rating), 0) FROM ratings WHERE comic_id = c.comic_id) >= ?";
+        $params[] = floatval($rating);
+    }
+
+    $query .= " GROUP BY c.comic_id";
+
+    // Add sorting with validation
+    $validSortOptions = ['latest', 'rating', 'views', 'title'];
+    $sort = in_array($sort, $validSortOptions) ? $sort : 'latest';
+    
+    switch ($sort) {
+        case 'rating':
+            $query .= " ORDER BY avg_rating DESC, c.updated_at DESC";
+            break;
+        case 'views':
+            $query .= " ORDER BY c.total_views DESC, c.updated_at DESC";
+            break;
+        case 'title':
+            $query .= " ORDER BY c.title ASC";
+            break;
+        default:
+            $query .= " ORDER BY c.updated_at DESC";
+    }
+
+    // Get total count with error handling
+    $totalQuery = "SELECT COUNT(DISTINCT c.comic_id) as total FROM ($query) as subquery";
+    $totalResult = fetchOne($totalQuery, $params);
+    $total = $totalResult ? ($totalResult['total'] ?? 0) : 0;
+    $totalPages = max(1, ceil($total / $perPage));
+    
+    // Ensure page is within valid range
+    $page = min($page, $totalPages);
+    
+    // Add pagination
+    $query .= " LIMIT ? OFFSET ?";
+    $params[] = $perPage;
+    $params[] = ($page - 1) * $perPage;
+
+    // Execute final query with error handling
+    $comics = fetchAll($query, $params) ?? [];
+
+} catch (Exception $e) {
+    error_log("Collection page error: " . $e->getMessage());
+    $comics = [];
+    $total = 0;
+    $totalPages = 1;
 }
-
-if ($searchQuery) {
-    $whereConditions[] = "(c.title LIKE ? OR c.author LIKE ?)";
-    $params[] = "%$searchQuery%";
-    $params[] = "%$searchQuery%";
-}
-
-if (!empty($whereConditions)) {
-    $baseQuery .= " WHERE " . implode(" AND ", $whereConditions);
-}
-
-$baseQuery .= " GROUP BY c.comic_id ORDER BY c.created_at DESC";
-
-// Fetch filtered comics
-$comics = fetchAll($baseQuery, $params);
-
-// Fetch all genres for filter buttons
-$genres = fetchAll("SELECT * FROM genres ORDER BY name");
 ?>
 
 <!DOCTYPE html>
@@ -306,29 +368,82 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                 opacity: 0;
             }
         }
+
+        .opacity-50 {
+            opacity: 0.5;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
     </style>
 </head>
 <body class="bg-dark font-main text-gray-200">
     <!-- Navbar (sama seperti index.php) -->
     <nav class="bg-dark/90 backdrop-blur-md border-b border-wine/30 fixed w-full z-50">
-        <div class="container mx-auto px-4">
-                <div class="flex justify-between items-center py-4">
-                    <div class="flex items-center space-x-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-flame" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                        </svg>
-                        <span class="text-2xl font-bold font-fantasy flame-text">DarkVerse</span>
-                    </div>
-                    <div class="hidden md:flex items-center space-x-8">
-                        <a href="index.php" class="text-gray-400 hover:text-flame transition-colors">Home</a>
-                        <a href="collection.php" class="text-gray-400 hover:text-flame transition-colors">Collection</a>
-                        <a href="genre.php" class="text-gray-400 hover:text-flame transition-colors">Genre</a>
-                        <a href="latsest.php" class="text-gray-400 hover:text-flame transition-colors">Latest</a>
-                    </div>
-                    <div class="flex items-center space-x-4">
-                        <button class="btn-glow bg-blood text-white px-6 py-2 rounded hover:bg-crimson transition-colors">Login</button>
-                    </div>
+    <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="index.php" class="text-2xl font-fantasy flame-text">DarkVerse</a>
+                
+                <!-- Navigation -->
+                <div class="hidden md:flex items-center space-x-8">
+                    <a href="index.php" class="text-gray-300 hover:text-flame">Home</a>
+                    <a href="collection.php" class="text-gray-300 hover:text-flame">Collection</a>
+                    <a href="genre.php" class="text-gray-300 hover:text-flame">Genres</a>
+                    <a href="latest.php" class="text-gray-300 hover:text-flame">Latest</a>
                 </div>
+
+                <!-- Search & Auth -->
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            placeholder="Search comics..." 
+                            class="bg-dark/50 border border-wine/30 rounded-lg pl-4 pr-10 py-1 focus:outline-none focus:border-flame w-48"
+                        >
+                        <button class="absolute right-3 top-1/2 -translate-y-1/2">
+                            🔍
+                        </button>
+                    </div>
+
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <!-- User is logged in -->
+                        <div class="relative group">
+                            <button class="flex items-center gap-2 hover:text-flame">
+                                <img 
+                                    src="assets/images/avatars/<?= htmlspecialchars($_SESSION['avatar']) ?>" 
+                                    alt="Avatar" 
+                                    class="w-8 h-8 rounded-full border border-wine/30"
+                                >
+                                <span><?= htmlspecialchars($_SESSION['username']) ?></span>
+                            </button>
+                            <!-- Dropdown Menu -->
+                            <div class="absolute right-0 mt-2 w-48 bg-dark border border-wine/30 rounded-lg shadow-lg py-2 hidden group-hover:block">
+                                <a href="user/dashboard.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Dashboard
+                                </a>
+                                <a href="user/profile.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Profile
+                                </a>
+                                <a href="user/library.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    My Library
+                                </a>
+                                <hr class="my-2 border-wine/30">
+                                <a href="logout.php" class="block px-4 py-2 text-flame hover:bg-wine/20">
+                                    Logout
+                                </a>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <!-- User is not logged in -->
+                        <div class="flex items-center gap-4">
+                            <a href="login.php" class="text-gray-300 hover:text-flame">Login</a>
+                            <a href="register.php" class="bg-flame text-white px-4 py-1 rounded-lg hover:bg-crimson transition-colors">
+                                Sign Up
+                            </a>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
         </div>
     </nav>
 
@@ -337,41 +452,136 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
         <div class="container mx-auto px-4 relative z-10">
             <h1 class="text-4xl md:text-5xl font-bold mb-4 font-fantasy text-white text-center">Comic Collection</h1>
             
-            <!-- Search & Filter -->
-            <div class="max-w-2xl mx-auto mt-8">
-                <form action="" method="GET" class="flex gap-4 flex-wrap justify-center mb-6">
-                    <input 
-                        type="text" 
-                        name="search" 
-                        placeholder="Search comics..." 
-                        value="<?= htmlspecialchars($searchQuery) ?>"
-                        class="bg-dark/50 border border-wine/30 rounded px-4 py-2 focus:outline-none focus:border-flame flex-1"
-                    >
-                    <button type="submit" class="btn-glow bg-flame text-white px-6 py-2 rounded">Search</button>
+            <!-- Filter Section -->
+            <div class="mb-8 bg-dark border border-wine/30 rounded-lg p-4">
+                <form id="filterForm" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <!-- Search Input dengan auto-update -->
+                        <div>
+                            <input type="text" 
+                                   name="q" 
+                                   value="<?= htmlspecialchars($search) ?>"
+                                   class="w-full bg-darker border border-wine/30 rounded p-2 text-gray-300 placeholder-gray-500 focus:border-flame focus:ring-1 focus:ring-flame"
+                                   placeholder="Search titles..."
+                                   autocomplete="off">
+                        </div>
+
+                        <!-- Genre Filter (perbaikan dropdown) -->
+                        <div class="relative">
+                            <button type="button"
+                                    id="genreDropdown"
+                                    class="w-full bg-darker border border-wine/30 rounded p-2 text-gray-300 text-left flex justify-between items-center hover:bg-wine/10">
+                                <span id="genreText"><?= !empty($selectedGenres) ? count($selectedGenres) . ' genres' : 'All genres' ?></span>
+                                <span>▼</span>
+                            </button>
+                            <div id="genreList" 
+                                 class="absolute z-20 w-full mt-1 bg-darker border border-wine/30 rounded-lg p-2 hidden max-h-48 overflow-y-auto">
+                                <?php foreach ($genres as $genre): ?>
+                                    <label class="flex items-center p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                        <input type="checkbox" 
+                                               name="genres[]" 
+                                               value="<?= htmlspecialchars($genre['name']) ?>"
+                                               <?= in_array($genre['name'], $selectedGenres) ? 'checked' : '' ?>
+                                               class="mr-2 accent-flame">
+                                        <span class="text-gray-300"><?= htmlspecialchars($genre['name']) ?></span>
+                                    </label>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+
+                        <!-- Status Dropdown -->
+                        <div class="relative">
+                            <button type="button"
+                                    id="statusDropdown"
+                                    class="w-full bg-darker border border-wine/30 rounded p-2 text-gray-300 text-left flex justify-between items-center hover:bg-wine/10">
+                                <span id="statusText"><?= !empty($status) ? ucfirst($status) : 'All Status' ?></span>
+                                <span>▼</span>
+                            </button>
+                            <div id="statusList" 
+                                 class="absolute z-10 w-full mt-1 bg-darker border border-wine/30 rounded-lg p-2 hidden">
+                                <div class="space-y-1">
+                                    <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                        <input type="radio" name="status" value="" <?= empty($status) ? 'checked' : '' ?> class="hidden">
+                                        <span class="text-gray-300">All Status</span>
+                                    </label>
+                                    <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                        <input type="radio" name="status" value="ongoing" <?= $status === 'ongoing' ? 'checked' : '' ?> class="hidden">
+                                        <span class="text-gray-300">Ongoing</span>
+                                    </label>
+                                    <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                        <input type="radio" name="status" value="completed" <?= $status === 'completed' ? 'checked' : '' ?> class="hidden">
+                                        <span class="text-gray-300">Completed</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sort & Rating Combined -->
+                        <div class="flex gap-2">
+                            <!-- Rating Dropdown -->
+                            <div class="relative flex-1">
+                                <button type="button"
+                                        id="ratingDropdown"
+                                        class="w-full bg-darker border border-wine/30 rounded p-2 text-gray-300 text-left flex justify-between items-center hover:bg-wine/10">
+                                    <span id="ratingText"><?= !empty($rating) ? $rating . '+ ★' : 'Any Rating' ?></span>
+                                    <span>▼</span>
+                                </button>
+                                <div id="ratingList" 
+                                     class="absolute z-10 w-full mt-1 bg-darker border border-wine/30 rounded-lg p-2 hidden">
+                                    <div class="space-y-1">
+                                        <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                            <input type="radio" name="rating" value="" <?= empty($rating) ? 'checked' : '' ?> class="hidden">
+                                            <span class="text-gray-300">Any Rating</span>
+                                        </label>
+                                        <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                            <input type="radio" name="rating" value="4.5" <?= $rating === '4.5' ? 'checked' : '' ?> class="hidden">
+                                            <span class="text-gray-300">4.5+ ★</span>
+                                        </label>
+                                        <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                            <input type="radio" name="rating" value="4" <?= $rating === '4' ? 'checked' : '' ?> class="hidden">
+                                            <span class="text-gray-300">4+ ★</span>
+                                        </label>
+                                        <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                            <input type="radio" name="rating" value="3" <?= $rating === '3' ? 'checked' : '' ?> class="hidden">
+                                            <span class="text-gray-300">3+ ★</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Sort Dropdown -->
+                            <div class="relative flex-1">
+                                <button type="button"
+                                        id="sortDropdown"
+                                        class="w-full bg-darker border border-wine/30 rounded p-2 text-gray-300 text-left flex justify-between items-center hover:bg-wine/10">
+                                    <span id="sortText">
+                                        <?php
+                                        $sortLabels = [
+                                            'latest' => 'Latest Update',
+                                            'rating' => 'Rating',
+                                            'views' => 'Popularity',
+                                            'title' => 'Title'
+                                        ];
+                                        echo $sortLabels[$sort] ?? 'Latest Update';
+                                        ?>
+                                    </span>
+                                    <span>▼</span>
+                                </button>
+                                <div id="sortList" 
+                                     class="absolute z-10 w-full mt-1 bg-darker border border-wine/30 rounded-lg p-2 hidden">
+                                    <div class="space-y-1">
+                                        <?php foreach ($sortLabels as $value => $label): ?>
+                                            <label class="block p-2 hover:bg-wine/20 rounded cursor-pointer">
+                                                <input type="radio" name="sort" value="<?= $value ?>" <?= $sort === $value ? 'checked' : '' ?> class="hidden">
+                                                <span class="text-gray-300"><?= $label ?></span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </form>
-
-                <!-- Filter Tags -->
-                <div class="flex flex-wrap gap-3 justify-center">
-                    <a href="?<?= $searchQuery ? 'search=' . urlencode($searchQuery) : '' ?>" 
-                       class="<?= !$selectedGenre ? 'bg-blood/20 text-flame' : 'bg-dark text-gray-400 hover:bg-blood/20 hover:text-flame' ?> 
-                              text-sm px-4 py-1 rounded-full transition-colors">
-                        All
-                    </a>
-                    <?php foreach ($genres as $genre): ?>
-                        <a href="?genre=<?= urlencode($genre['name']) ?><?= $searchQuery ? '&search=' . urlencode($searchQuery) : '' ?>" 
-                           class="<?= $selectedGenre === $genre['name'] ? 'bg-blood/20 text-flame' : 'bg-dark text-gray-400 hover:bg-blood/20 hover:text-flame' ?> 
-                                  text-sm px-4 py-1 rounded-full transition-colors">
-                            <?= htmlspecialchars($genre['name']) ?>
-                        </a>
-                    <?php endforeach; ?>
-                </div>
-
-                <!-- Results count -->
-                <div class="text-center mt-6 text-gray-400">
-                    <?= count($comics) ?> Comics found
-                    <?= $selectedGenre ? "in " . htmlspecialchars($selectedGenre) : "" ?>
-                    <?= $searchQuery ? "matching \"" . htmlspecialchars($searchQuery) . "\"" : "" ?>
-                </div>
             </div>
         </div>
     </section>
@@ -379,65 +589,76 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
     <!-- Collection Grid -->
     <section class="py-16">
         <div class="container mx-auto px-4">
-            <?php if (empty($comics)): ?>
-                <div class="text-center py-12">
-                    <p class="text-gray-400 text-lg">No comics found matching your criteria.</p>
-                    <a href="collection.php" class="inline-block mt-4 bg-flame text-white px-6 py-2 rounded">View All Comics</a>
-                </div>
-            <?php else: ?>
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            <!-- Update the results count display -->
+            <div class="text-gray-400 mb-4">
+                Found <?= number_format($total) ?> comics
+            </div>
+
+            <!-- Update the comics grid to handle empty results -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                <?php if (!empty($comics)): ?>
                     <?php foreach ($comics as $comic): ?>
                         <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
                             <div class="relative group">
                                 <img 
-                                    src="assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
-                                    alt="<?= htmlspecialchars($comic['title']) ?>" 
+                                    src="assets/cover/<?= htmlspecialchars($comic['cover_image'] ?? '') ?>" 
+                                    alt="<?= htmlspecialchars($comic['title'] ?? 'Comic Cover') ?>" 
                                     class="w-full h-72 object-cover"
                                 >
                                 <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
                                     <div class="space-y-2 w-full">
-                                        <a href="read.php?id=<?= $comic['comic_id'] ?>" class="block w-full bg-flame text-white text-center py-2 rounded">Read Now</a>
-                                        <button class="w-full bg-dark/80 text-white py-2 rounded border border-wine/30">Add to Library</button>
+                                        <a href="comic-detail.php?id=<?= $comic['comic_id'] ?? 0 ?>" 
+                                           class="block w-full bg-flame text-white text-center py-2 rounded hover:bg-crimson transition-colors">
+                                            Read Now
+                                        </a>
+                                        
+                                        <?php if (isLoggedIn()): ?>
+                                            <?php 
+                                            $isBookmarked = !empty($comic['comic_id']) ? fetchOne(
+                                                "SELECT * FROM bookmarks WHERE user_id = ? AND comic_id = ?", 
+                                                [$_SESSION['user_id'], $comic['comic_id']]
+                                            ) : null;
+                                            ?>
+                                            <button 
+                                                class="bookmark-btn w-full py-2 rounded border border-wine/30 transition-colors
+                                                       <?= $isBookmarked ? 'bg-flame/20 text-flame' : 'bg-dark/80 text-white hover:bg-flame/20 hover:text-flame' ?>"
+                                                data-comic-id="<?= $comic['comic_id'] ?? 0 ?>">
+                                                <span class="bookmark-icon"><?= $isBookmarked ? '★' : '☆' ?></span>
+                                                <span class="bookmark-text"><?= $isBookmarked ? 'Bookmarked' : 'Add to Library' ?></span>
+                                            </button>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             </div>
                             <div class="p-4">
-                                <h3 class="font-semibold text-lg mb-2 text-flame"><?= htmlspecialchars($comic['title']) ?></h3>
-                                <p class="text-gray-400 text-sm mb-2"><?= htmlspecialchars($comic['author']) ?></p>
-                                <div class="flex items-center justify-between">
-                                    <div class="flex gap-2">
+                                <h3 class="font-semibold text-flame mb-2">
+                                    <?= htmlspecialchars($comic['title'] ?? 'Untitled') ?>
+                                </h3>
+                                <?php if (!empty($comic['genres'])): ?>
+                                    <div class="flex flex-wrap gap-2 mb-2">
                                         <?php 
-                                        if (!empty($comic['genres'])) {
-                                            $comicGenres = explode(',', $comic['genres']);
-                                            $firstTwoGenres = array_slice($comicGenres, 0, 2);
-                                            foreach ($firstTwoGenres as $genre): 
+                                        $comicGenres = explode(',', $comic['genres']);
+                                        $firstTwoGenres = array_slice($comicGenres, 0, 2);
+                                        foreach ($firstTwoGenres as $genre): 
                                         ?>
-                                            <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
+                                            <span class="bg-wine/20 text-flame text-xs px-2 py-1 rounded">
                                                 <?= htmlspecialchars(trim($genre)) ?>
                                             </span>
-                                        <?php 
-                                            endforeach;
-                                        } else {
-                                        ?>
-                                            <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
-                                                Uncategorized
-                                            </span>
-                                        <?php 
-                                        } 
-                                        ?>
+                                        <?php endforeach; ?>
                                     </div>
-                                    <span class="text-gray-400 text-sm">
-                                        <?= $comic['avg_rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['avg_rating'], 1) ?>
-                                    </span>
-                                </div>
-                                <div class="mt-2 text-xs text-gray-400">
-                                    <?= $comic['chapter_count'] ?> Chapter<?= $comic['chapter_count'] != 1 ? 's' : '' ?>
+                                <?php endif; ?>
+                                <div class="text-gray-400 text-sm">
+                                    <?= number_format($comic['chapter_count'] ?? 0) ?> Chapters
                                 </div>
                             </div>
                         </div>
                     <?php endforeach; ?>
-                </div>
-            <?php endif; ?>
+                <?php else: ?>
+                    <div class="col-span-full text-center py-12 text-gray-400">
+                        No comics found matching your criteria.
+                    </div>
+                <?php endif; ?>
+            </div>
         </div>
     </section>
 
@@ -484,84 +705,117 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
         </div>
     </footer>
 
+    <!-- Add Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 transform translate-y-full opacity-0 transition-all duration-300">
+        <div class="flex items-center gap-2 px-6 py-3 rounded-lg bg-dark text-white shadow-lg">
+            <span id="toastIcon" class="text-xl"></span>
+            <span id="toastMessage"></span>
+        </div>
+    </div>
+
     <script>
-        // Scroll Reveal
         document.addEventListener('DOMContentLoaded', function() {
-            const reveals = document.querySelectorAll('.reveal');
+            let searchTimeout;
+            
+            // Fungsi untuk submit form dengan delay
+            function delayedSubmit() {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    document.getElementById('filterForm').submit();
+                }, 500); // Delay 500ms setelah user berhenti mengetik
+            }
 
-            function revealOnScroll() {
-                reveals.forEach(element => {
-                    const elementTop = element.getBoundingClientRect().top;
-                    const elementVisible = 150;
-
-                    if (elementTop < window.innerHeight - elementVisible) {
-                        element.classList.add('active');
+            // Handle search dengan debounce
+            const searchInput = document.querySelector('input[name="q"]');
+            if (searchInput) {
+                searchInput.addEventListener('input', delayedSubmit);
+                searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        clearTimeout(searchTimeout);
+                        document.getElementById('filterForm').submit();
                     }
                 });
             }
 
-            window.addEventListener('scroll', revealOnScroll);
-            revealOnScroll(); // Initial check
+            // Genre dropdown dengan auto-submit
+            const genreDropdown = document.getElementById('genreDropdown');
+            const genreList = document.getElementById('genreList');
+            const genreText = document.getElementById('genreText');
+            const genreCheckboxes = document.querySelectorAll('input[name="genres[]"]');
 
-            const heroSection = document.querySelector('.dark-gradient');
-            
-            // Add red mist effect
-            const mist = document.createElement('div');
-            mist.className = 'mist';
-            heroSection.appendChild(mist);
+            if (genreDropdown && genreList) {
+                genreDropdown.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    genreList.classList.toggle('hidden');
+                    // Close other dropdowns
+                    document.querySelectorAll('[id$="List"]').forEach(el => {
+                        if (el.id !== 'genreList') el.classList.add('hidden');
+                    });
+                });
 
-            // Create floating skull effect
-            function createSkull() {
-                const skull = document.createElement('div');
-                skull.className = 'skull';
-                skull.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 24 24" fill="#701C1A" opacity="0.8">
-                    <path d="M12 2C6.477 2 2 6.477 2 12c0 3.686 2.11 6.89 5.167 8.444V22h3.666v-1h2.334v1h3.666v-1.556C19.89 18.89 22 15.686 22 12c0-5.523-4.477-10-10-10zm-3.5 16a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm7 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm-3.5-5a1 1 0 110-2 1 1 0 010 2z"/>
-                </svg>`;
-                
-                const startX = Math.random() * heroSection.offsetWidth;
-                skull.style.left = `${startX}px`;
-                skull.style.bottom = '0';
-                
-                heroSection.appendChild(skull);
-                
-                skull.addEventListener('animationend', () => {
-                    skull.remove();
+                // Update genre count and submit
+                genreCheckboxes.forEach(checkbox => {
+                    checkbox.addEventListener('change', () => {
+                        const selectedCount = Array.from(genreCheckboxes).filter(cb => cb.checked).length;
+                        genreText.textContent = selectedCount > 0 ? `${selectedCount} genres` : 'All genres';
+                        delayedSubmit(); // Auto-submit setelah checkbox berubah
+                    });
                 });
             }
 
-            // Create flying raven effect
-            function createRaven() {
-                const raven = document.createElement('div');
-                raven.className = 'raven';
-                raven.innerHTML = `<svg width="40" height="40" viewBox="0 0 24 24" fill="#482D2E">
-                    <path d="M21.4 11.6l-2.2-1.5 1.5-2.2-2.4-.8.5-2.5-2.5.5-.8-2.4-2.2 1.5L11.6 2.6 10.1 5 7.9 3.5l-.8 2.4-2.5-.5.5 2.5-2.4.8 1.5 2.2L2.6 12.4 5 13.9l-1.5 2.2 2.4.8-.5 2.5 2.5-.5.8 2.4 2.2-1.5 1.7 2.1 1.5-2.2 2.2 1.5.8-2.4 2.5.5-.5-2.5 2.4-.8-1.5-2.2 2.1-1.7z"/>
-                </svg>`;
+            // Setup dropdown dengan auto-submit
+            const setupDropdown = (buttonId, listId, inputName) => {
+                const button = document.getElementById(buttonId);
+                const list = document.getElementById(listId);
                 
-                const startY = Math.random() * (heroSection.offsetHeight / 2);
-                raven.style.top = `${startY}px`;
-                
-                heroSection.appendChild(raven);
-                
-                raven.addEventListener('animationend', () => {
-                    raven.remove();
-                });
-            }
+                if (!button || !list) return;
 
-            // Create elements periodically
-            setInterval(createSkull, 2000);
-            setInterval(createRaven, 3000);
-        });
-        
-        // Optional: Add active class to current filter
-        document.addEventListener('DOMContentLoaded', function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const currentGenre = urlParams.get('genre');
-            
-            if (currentGenre) {
-                document.querySelectorAll('.filter-btn').forEach(btn => {
-                    if (btn.textContent.trim() === currentGenre) {
-                        btn.classList.add('active');
-                    }
+                button.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    list.classList.toggle('hidden');
+                    // Close other dropdowns
+                    document.querySelectorAll('[id$="List"]').forEach(el => {
+                        if (el.id !== listId) el.classList.add('hidden');
+                    });
+                });
+
+                // Handle radio selections dengan auto-submit
+                if (inputName) {
+                    list.querySelectorAll(`input[name="${inputName}"]`).forEach(input => {
+                        input.addEventListener('change', () => {
+                            const label = input.nextElementSibling.textContent;
+                            const textElement = document.getElementById(`${buttonId.replace('Dropdown', 'Text')}`);
+                            if (textElement) {
+                                textElement.textContent = label;
+                            }
+                            list.classList.add('hidden');
+                            document.getElementById('filterForm').submit(); // Langsung submit saat pilihan berubah
+                        });
+                    });
+                }
+            };
+
+            // Setup other dropdowns
+            setupDropdown('statusDropdown', 'statusList', 'status');
+            setupDropdown('ratingDropdown', 'ratingList', 'rating');
+            setupDropdown('sortDropdown', 'sortList', 'sort');
+
+            // Close dropdowns when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('[id$="Dropdown"]') && !e.target.closest('[id$="List"]')) {
+                    document.querySelectorAll('[id$="List"]').forEach(el => {
+                        el.classList.add('hidden');
+                    });
+                }
+            });
+
+            // Optional: Tambahkan loading indicator
+            const form = document.getElementById('filterForm');
+            if (form) {
+                form.addEventListener('submit', () => {
+                    // Tambahkan class loading ke container
+                    document.querySelector('.grid').classList.add('opacity-50');
                 });
             }
         });

@@ -292,22 +292,69 @@ $genreCombinations = fetchAll("
 <body class="bg-dark font-main text-gray-200">
     <!-- Navbar (sama seperti index.php) -->
     <nav class="bg-dark/90 backdrop-blur-md border-b border-wine/30 fixed w-full z-50">
-        <div class="container mx-auto px-4">
-            <div class="flex justify-between items-center py-4">
-                <div class="flex items-center space-x-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-flame" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                    <span class="text-2xl font-bold font-fantasy flame-text">DarkVerse</span>
-                </div>
+    <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="index.php" class="text-2xl font-fantasy flame-text">DarkVerse</a>
+                
+                <!-- Navigation -->
                 <div class="hidden md:flex items-center space-x-8">
-                    <a href="index.php" class="text-gray-400 hover:text-flame transition-colors">Home</a>
-                    <a href="collection.php" class="text-gray-400 hover:text-flame transition-colors">Collection</a>
-                    <a href="genre.php" class="text-gray-400 hover:text-flame transition-colors">Genre</a>
-                    <a href="latest.php" class="text-gray-400 hover:text-flame transition-colors">Latest</a>
+                    <a href="index.php" class="text-gray-300 hover:text-flame">Home</a>
+                    <a href="collection.php" class="text-gray-300 hover:text-flame">Collection</a>
+                    <a href="genre.php" class="text-gray-300 hover:text-flame">Genres</a>
+                    <a href="latest.php" class="text-gray-300 hover:text-flame">Latest</a>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <button class="btn-glow bg-blood text-white px-6 py-2 rounded hover:bg-crimson transition-colors">Login</button>
+
+                <!-- Search & Auth -->
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            placeholder="Search comics..." 
+                            class="bg-dark/50 border border-wine/30 rounded-lg pl-4 pr-10 py-1 focus:outline-none focus:border-flame w-48"
+                        >
+                        <button class="absolute right-3 top-1/2 -translate-y-1/2">
+                            🔍
+                        </button>
+                    </div>
+
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <!-- User is logged in -->
+                        <div class="relative group">
+                            <button class="flex items-center gap-2 hover:text-flame">
+                                <img 
+                                    src="assets/images/avatars/<?= htmlspecialchars($_SESSION['avatar']) ?>" 
+                                    alt="Avatar" 
+                                    class="w-8 h-8 rounded-full border border-wine/30"
+                                >
+                                <span><?= htmlspecialchars($_SESSION['username']) ?></span>
+                            </button>
+                            <!-- Dropdown Menu -->
+                            <div class="absolute right-0 mt-2 w-48 bg-dark border border-wine/30 rounded-lg shadow-lg py-2 hidden group-hover:block">
+                                <a href="user/dashboard.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Dashboard
+                                </a>
+                                <a href="user/profile.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Profile
+                                </a>
+                                <a href="user/library.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    My Library
+                                </a>
+                                <hr class="my-2 border-wine/30">
+                                <a href="logout.php" class="block px-4 py-2 text-flame hover:bg-wine/20">
+                                    Logout
+                                </a>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <!-- User is not logged in -->
+                        <div class="flex items-center gap-4">
+                            <a href="login.php" class="text-gray-300 hover:text-flame">Login</a>
+                            <a href="register.php" class="bg-flame text-white px-4 py-1 rounded-lg hover:bg-crimson transition-colors">
+                                Sign Up
+                            </a>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -408,15 +455,75 @@ $genreCombinations = fetchAll("
     <section class="py-16">
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text font-fantasy">Genre Map</h2>
-            <div class="relative h-[600px] bg-dark border border-wine/30 rounded-lg p-6">
-                <!-- Genre map visualization -->
-                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 h-full">
-                    <?php foreach ($genres as $genre): ?>
-                        <div class="flex flex-col items-center justify-center text-center p-4 rounded-lg bg-wine/10 hover:bg-wine/20 transition-colors">
-                            <span class="text-flame font-semibold mb-2"><?= htmlspecialchars($genre['name']) ?></span>
-                            <span class="text-gray-400 text-sm"><?= $genre['comic_count'] ?> Comics</span>
+            <div class="relative bg-dark border border-wine/30 rounded-lg p-6">
+                <!-- Genre Map Visualization -->
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                    <?php foreach ($genres as $genre): 
+                        // Get related genres based on comics that share genres
+                        $relatedGenres = fetchAll("
+                            SELECT 
+                                g2.name,
+                                COUNT(*) as connection_strength
+                            FROM comic_genres cg1
+                            JOIN comic_genres cg2 ON cg1.comic_id = cg2.comic_id AND cg1.genre_id != cg2.genre_id
+                            JOIN genres g1 ON cg1.genre_id = g1.genre_id
+                            JOIN genres g2 ON cg2.genre_id = g2.genre_id
+                            WHERE g1.name = ?
+                            GROUP BY g2.name
+                            ORDER BY connection_strength DESC
+                            LIMIT 3
+                        ", [$genre['name']]);
+                    ?>
+                        <div class="genre-node relative p-4 bg-wine/10 rounded-lg hover:bg-wine/20 transition-all duration-300">
+                            <!-- Genre Info -->
+                            <div class="text-center mb-4">
+                                <h3 class="text-flame font-semibold text-lg mb-1">
+                                    <?= htmlspecialchars($genre['name']) ?>
+                                </h3>
+                                <span class="text-gray-400 text-sm">
+                                    <?= $genre['comic_count'] ?> Comics
+                                </span>
+                            </div>
+
+                            <!-- Related Genres -->
+                            <?php if (!empty($relatedGenres)): ?>
+                                <div class="text-sm text-gray-400">
+                                    <p class="mb-2 text-center">Related Genres:</p>
+                                    <ul class="space-y-1">
+                                        <?php foreach ($relatedGenres as $related): ?>
+                                            <li class="flex justify-between items-center">
+                                                <span><?= htmlspecialchars($related['name']) ?></span>
+                                                <div class="w-16 h-1 bg-wine/30 rounded-full overflow-hidden">
+                                                    <div class="h-full bg-flame" 
+                                                         style="width: <?= min(100, ($related['connection_strength'] / $genre['comic_count']) * 100) ?>%">
+                                                    </div>
+                                                </div>
+                                            </li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </div>
+                            <?php endif; ?>
+
+                            <!-- Quick Actions -->
+                            <div class="mt-4 flex justify-center space-x-2">
+                                <a href="collection.php?genre=<?= urlencode($genre['name']) ?>" 
+                                   class="px-3 py-1 text-sm bg-flame/20 text-flame rounded hover:bg-flame hover:text-white transition-colors">
+                                    Browse
+                                </a>
+                                <?php if (!empty($relatedGenres)): ?>
+                                    <a href="collection.php?genres[]=<?= urlencode($genre['name']) ?>&genres[]=<?= urlencode($relatedGenres[0]['name']) ?>" 
+                                       class="px-3 py-1 text-sm bg-dark/50 text-gray-400 rounded hover:bg-wine/20 hover:text-flame transition-colors">
+                                        Explore Mix
+                                    </a>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     <?php endforeach; ?>
+                </div>
+
+                <!-- Interactive Lines (optional) -->
+                <div id="genreConnections" class="absolute inset-0 pointer-events-none">
+                    <!-- Lines will be drawn here with JavaScript -->
                 </div>
             </div>
         </div>
@@ -531,6 +638,56 @@ $genreCombinations = fetchAll("
             // Create elements periodically
             setInterval(createSkull, 2000);
             setInterval(createRaven, 3000);
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const genreNodes = document.querySelectorAll('.genre-node');
+            
+            // Hover effect
+            genreNodes.forEach(node => {
+                node.addEventListener('mouseenter', function() {
+                    // Highlight related genres
+                    const relatedGenres = this.querySelectorAll('li span');
+                    relatedGenres.forEach(genre => {
+                        document.querySelectorAll('.genre-node').forEach(otherNode => {
+                            if (otherNode.querySelector('h3').textContent.trim() === genre.textContent.trim()) {
+                                otherNode.classList.add('ring-2', 'ring-flame');
+                            }
+                        });
+                    });
+                });
+
+                node.addEventListener('mouseleave', function() {
+                    // Remove highlights
+                    document.querySelectorAll('.genre-node').forEach(node => {
+                        node.classList.remove('ring-2', 'ring-flame');
+                    });
+                });
+            });
+
+            // Optional: Draw connection lines
+            function drawConnections() {
+                const canvas = document.getElementById('genreConnections');
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw lines between related genres
+                genreNodes.forEach(node => {
+                    const nodeRect = node.getBoundingClientRect();
+                    const relatedGenres = node.querySelectorAll('li span');
+                    
+                    relatedGenres.forEach(genre => {
+                        const relatedNode = Array.from(genreNodes).find(n => 
+                            n.querySelector('h3').textContent.trim() === genre.textContent.trim()
+                        );
+                        
+                        if (relatedNode) {
+                            const relatedRect = relatedNode.getBoundingClientRect();
+                            // Draw line...
+                        }
+                    });
+                });
+            }
         });
     </script>
 </body>

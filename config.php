@@ -35,20 +35,33 @@ try {
             $stmt->execute($params);
             return $stmt;
         } catch (PDOException $e) {
-            // Log error and show user-friendly message
             error_log("Database Error: " . $e->getMessage());
+            error_log("Query: " . $sql);
+            error_log("Params: " . print_r($params, true));
             throw new Exception("Database error occurred. Please try again later.");
         }
     }
 
     // Helper function to get single row
     function fetchOne($sql, $params = []) {
-        return query($sql, $params)->fetch();
+        try {
+            $stmt = query($sql, $params);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("FetchOne Error: " . $e->getMessage());
+            return null;
+        }
     }
 
     // Helper function to get multiple rows
     function fetchAll($sql, $params = []) {
-        return query($sql, $params)->fetchAll();
+        try {
+            $stmt = query($sql, $params);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("FetchAll Error: " . $e->getMessage());
+            return [];
+        }
     }
 
     // Helper function to get last inserted ID
@@ -162,6 +175,71 @@ try {
             'offset' => $offset,
             'per_page' => $perPage
         ];
+    }
+
+    function getTrendingComics($period = 'daily', $limit = 10) {
+        try {
+            switch($period) {
+                case 'daily':
+                    $comics = fetchAll("
+                        SELECT 
+                            c.*,
+                            COALESCE(d.view_count, 0) as period_views,
+                            GROUP_CONCAT(DISTINCT g.name) as genres
+                        FROM comics c
+                        LEFT JOIN daily_views d ON c.comic_id = d.comic_id 
+                            AND d.view_date = CURDATE()
+                        LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+                        LEFT JOIN genres g ON cg.genre_id = g.genre_id
+                        GROUP BY c.comic_id
+                        ORDER BY period_views DESC, c.view_count DESC
+                        LIMIT ?
+                    ", [$limit]);
+                    break;
+
+                case 'weekly':
+                    $comics = fetchAll("
+                        SELECT 
+                            c.*,
+                            COALESCE(w.view_count, 0) as period_views,
+                            GROUP_CONCAT(DISTINCT g.name) as genres
+                        FROM comics c
+                        LEFT JOIN weekly_views w ON c.comic_id = w.comic_id 
+                            AND w.week_number = DATE_FORMAT(NOW(), '%Y%u')
+                        LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+                        LEFT JOIN genres g ON cg.genre_id = g.genre_id
+                        GROUP BY c.comic_id
+                        ORDER BY period_views DESC, c.view_count DESC
+                        LIMIT ?
+                    ", [$limit]);
+                    break;
+
+                case 'monthly':
+                    $comics = fetchAll("
+                        SELECT 
+                            c.*,
+                            COALESCE(m.view_count, 0) as period_views,
+                            GROUP_CONCAT(DISTINCT g.name) as genres
+                        FROM comics c
+                        LEFT JOIN monthly_views m ON c.comic_id = m.comic_id 
+                            AND m.month_number = DATE_FORMAT(NOW(), '%Y%m')
+                        LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+                        LEFT JOIN genres g ON cg.genre_id = g.genre_id
+                        GROUP BY c.comic_id
+                        ORDER BY period_views DESC, c.view_count DESC
+                        LIMIT ?
+                    ", [$limit]);
+                    break;
+
+                default:
+                    throw new Exception('Invalid period specified');
+            }
+
+            return $comics;
+        } catch (Exception $e) {
+            error_log("Error in getTrendingComics: " . $e->getMessage());
+            return [];
+        }
     }
 
 } catch (PDOException $e) {

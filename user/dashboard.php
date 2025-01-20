@@ -1,3 +1,124 @@
+<?php
+session_start();
+require_once '../config.php';
+
+// Check if user is logged in
+if (!isLoggedIn()) {
+    redirect('../login.php');
+}
+
+// Fetch user data
+$user = fetchOne("SELECT * FROM users WHERE user_id = ?", [$_SESSION['user_id']]);
+
+try {
+    // Fetch reading history with error handling
+    $readingHistory = fetchAll("
+        SELECT 
+            c.comic_id,
+            c.title,
+            c.cover_image,
+            ch.chapter_number,
+            ch.title as chapter_title,
+            rh.read_at as last_read
+        FROM comics c
+        LEFT JOIN reading_history rh ON c.comic_id = rh.comic_id
+        LEFT JOIN chapters ch ON rh.chapter_id = ch.chapter_id
+        WHERE rh.user_id = ?
+        ORDER BY rh.read_at DESC
+        LIMIT 5
+    ", [$_SESSION['user_id']]) ?? [];
+
+    // Fetch continue reading with error handling
+    $continueReading = fetchAll("
+        SELECT 
+            c.comic_id,
+            c.title,
+            c.cover_image,
+            ch.chapter_number,
+            (SELECT COUNT(*) FROM chapters WHERE comic_id = c.comic_id) as total_chapters,
+            MAX(rh.read_at) as last_read
+        FROM comics c
+        LEFT JOIN reading_history rh ON c.comic_id = rh.comic_id
+        LEFT JOIN chapters ch ON rh.chapter_id = ch.chapter_id
+        WHERE rh.user_id = ?
+        GROUP BY c.comic_id, c.title, c.cover_image, ch.chapter_number
+        ORDER BY last_read DESC
+        LIMIT 3
+    ", [$_SESSION['user_id']]) ?? [];
+
+    // Get user stats
+    $userStats = fetchOne("
+        SELECT 
+            COUNT(DISTINCT rh.comic_id) as comics_read,
+            COUNT(DISTINCT b.comic_id) as bookmark_count,
+            (SELECT COUNT(*) FROM collections WHERE user_id = ?) as collection_count
+        FROM users u
+        LEFT JOIN reading_history rh ON u.user_id = rh.user_id
+        LEFT JOIN bookmarks b ON u.user_id = b.user_id
+        WHERE u.user_id = ?
+    ", [$_SESSION['user_id'], $_SESSION['user_id']]) ?? [
+        'comics_read' => 0,
+        'bookmark_count' => 0,
+        'collection_count' => 0
+    ];
+
+    // Merge stats into user array
+    $user = array_merge($user ?? [], $userStats);
+
+} catch (Exception $e) {
+    error_log("Dashboard Error: " . $e->getMessage());
+    $readingHistory = [];
+    $continueReading = [];
+    $user['comics_read'] = 0;
+    $user['bookmark_count'] = 0;
+    $user['collection_count'] = 0;
+}
+
+// Pastikan semua tabel yang diperlukan sudah ada
+$requiredTables = "
+CREATE TABLE IF NOT EXISTS reading_history (
+    history_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    comic_id INT NOT NULL,
+    chapter_id INT NOT NULL,
+    read_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (comic_id) REFERENCES comics(comic_id) ON DELETE CASCADE,
+    FOREIGN KEY (chapter_id) REFERENCES chapters(chapter_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+    bookmark_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    comic_id INT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (comic_id) REFERENCES comics(comic_id) ON DELETE CASCADE,
+    UNIQUE KEY unique_bookmark (user_id, comic_id)
+);
+
+CREATE TABLE IF NOT EXISTS collections (
+    collection_id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
+);
+";
+
+try {
+    // Execute table creation queries
+    $queries = explode(';', $requiredTables);
+    foreach ($queries as $query) {
+        if (trim($query)) {
+            query($query);
+        }
+    }
+} catch (Exception $e) {
+    error_log("Table creation error: " . $e->getMessage());
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,10 +223,14 @@
         
         <!-- User Profile Preview dengan glow effect -->
         <div class="flex items-center gap-3 p-3 bg-wine/10 rounded-lg mb-8 glow-border">
-            <img src="assets/images/avatar.jpg" alt="User Avatar" class="w-12 h-12 rounded-full border-2 border-flame">
+            <img 
+                src="../assets/images/avatars/<?= htmlspecialchars($user['avatar']) ?>" 
+                alt="User Avatar" 
+                class="w-12 h-12 rounded-full border-2 border-flame"
+            >
             <div>
-                <h3 class="font-semibold text-flame">John Doe</h3>
-                <p class="text-xs text-gray-400">Premium Member</p>
+                <h3 class="font-semibold text-flame"><?= htmlspecialchars($user['username']) ?></h3>
+                <p class="text-xs text-gray-400"><?= ucfirst($user['membership_type']) ?> Member</p>
             </div>
         </div>
 
@@ -142,19 +267,19 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Comics Read</h3>
-                    <p class="text-2xl font-bold text-flame">247</p>
+                    <p class="text-2xl font-bold text-flame"><?= $user['comics_read'] ?></p>
                 </div>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Reading Time</h3>
-                    <p class="text-2xl font-bold text-flame">126h</p>
+                    <p class="text-2xl font-bold text-flame"><?= round($user['comics_read'] * 2, 1) ?>h</p>
                 </div>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Bookmarks</h3>
-                    <p class="text-2xl font-bold text-flame">52</p>
+                    <p class="text-2xl font-bold text-flame"><?= $user['bookmark_count'] ?></p>
                 </div>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Collections</h3>
-                    <p class="text-2xl font-bold text-flame">8</p>
+                    <p class="text-2xl font-bold text-flame"><?= $user['collection_count'] ?></p>
                 </div>
             </div>
 
@@ -162,20 +287,40 @@
             <div class="mb-8">
                 <h3 class="text-xl font-bold mb-4 text-flame">Continue Reading</h3>
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
-                        <div class="flex">
-                            <img src="assets/images/comic1.jpg" alt="Comic Cover" class="w-24 h-32 object-cover">
-                            <div class="p-4 flex-1">
-                                <h4 class="font-semibold text-flame mb-1">Dark Knights</h4>
-                                <p class="text-sm text-gray-400 mb-2">Chapter 45</p>
-                                <div class="w-full bg-wine/20 rounded-full h-1 mb-2">
-                                    <div class="bg-flame h-1 rounded-full" style="width: 75%"></div>
+                    <?php if (!empty($continueReading)): ?>
+                        <?php foreach ($continueReading as $comic): ?>
+                            <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                                <div class="flex">
+                                    <img 
+                                        src="../assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
+                                        alt="Comic Cover" 
+                                        class="w-24 h-32 object-cover"
+                                    >
+                                    <div class="p-4 flex-1">
+                                        <h4 class="font-semibold text-flame mb-1">
+                                            <?= htmlspecialchars($comic['title']) ?>
+                                        </h4>
+                                        <p class="text-sm text-gray-400 mb-2">
+                                            Chapter <?= htmlspecialchars($comic['chapter_number']) ?>
+                                        </p>
+                                        <div class="w-full bg-wine/20 rounded-full h-1 mb-2">
+                                            <div class="bg-flame h-1 rounded-full" 
+                                                 style="width: <?= ($comic['chapter_number'] * 100) / max(1, $comic['total_chapters']) ?>%">
+                                            </div>
+                                        </div>
+                                        <a href="../comic-detail.php?id=<?= $comic['comic_id'] ?>" 
+                                           class="block w-full bg-flame text-white py-1 rounded text-sm text-center">
+                                            Continue
+                                        </a>
+                                    </div>
                                 </div>
-                                <button class="w-full bg-flame text-white py-1 rounded text-sm">Continue</button>
                             </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="col-span-3 text-center text-gray-400 py-8">
+                            No comics to continue reading.
                         </div>
-                    </div>
-                    <!-- More continue reading cards -->
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -221,14 +366,15 @@
 
             <!-- Library Grid -->
             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                <?php foreach ($readingHistory as $comic): ?>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg overflow-hidden">
                     <img src="assets/images/comic2.jpg" alt="Comic Cover" class="w-full h-48 object-cover">
                     <div class="p-3">
-                        <h3 class="font-semibold text-sm text-flame mb-1">Blood Moon Saga</h3>
-                        <p class="text-xs text-gray-400">Last read: 2 days ago</p>
+                        <h3 class="font-semibold text-sm text-flame mb-1"><?= htmlspecialchars($comic['title']) ?></h3>
+                        <p class="text-xs text-gray-400">Last read: <?= date('d M', strtotime($comic['last_read'])) ?></p>
                     </div>
                 </div>
-                <!-- More library items -->
+                <?php endforeach; ?>
             </div>
         </section>
 
@@ -236,22 +382,121 @@
         <section id="reading-history" class="mb-12">
             <h2 class="text-3xl font-bold mb-6 flame-text font-fantasy">Reading History</h2>
             <div class="bg-dark border border-wine/30 rounded-lg">
-                <div class="p-4 border-b border-wine/30">
-                    <div class="flex items-center gap-4">
-                        <img src="assets/images/comic3.jpg" alt="Comic Cover" class="w-16 h-20 object-cover rounded">
-                        <div class="flex-1">
-                            <h3 class="font-semibold text-flame">Shadow Warriors</h3>
-                            <p class="text-sm text-gray-400">Chapter 23: The Dark Path</p>
-                            <p class="text-xs text-gray-400 mt-1">Read 3 hours ago</p>
+                <?php if (!empty($readingHistory)): ?>
+                    <?php foreach ($readingHistory as $history): ?>
+                        <div class="p-4 border-b border-wine/30">
+                            <div class="flex items-center gap-4">
+                                <img 
+                                    src="../assets/cover/<?= htmlspecialchars($history['cover_image']) ?>" 
+                                    alt="Comic Cover" 
+                                    class="w-16 h-20 object-cover rounded"
+                                >
+                                <div class="flex-1">
+                                    <h3 class="font-semibold text-flame">
+                                        <?= htmlspecialchars($history['title']) ?>
+                                    </h3>
+                                    <p class="text-sm text-gray-400">
+                                        Chapter <?= htmlspecialchars($history['chapter_number']) ?>
+                                        <?php if (!empty($history['chapter_title'])): ?>
+                                            - <?= htmlspecialchars($history['chapter_title']) ?>
+                                        <?php endif; ?>
+                                    </p>
+                                    <p class="text-xs text-gray-400 mt-1">
+                                        Read <?= date('d M', strtotime($history['last_read'])) ?>
+                                    </p>
+                                </div>
+                                <a href="../comic-detail.php?id=<?= $history['comic_id'] ?>" 
+                                   class="px-4 py-2 bg-wine/20 text-flame rounded-lg hover:bg-wine/30">
+                                    Read Again
+                                </a>
+                            </div>
                         </div>
-                        <button class="px-4 py-2 bg-wine/20 text-flame rounded-lg hover:bg-wine/30">
-                            Read Again
-                        </button>
+                    <?php endforeach; ?>
+                <?php else: ?>
+                    <div class="p-8 text-center text-gray-400">
+                        No reading history yet.
                     </div>
-                </div>
-                <!-- More history items -->
+                <?php endif; ?>
             </div>
         </section>
+
+        <!-- Recent Activity Section -->
+        <div class="bg-dark border border-wine/30 rounded-lg p-6 mb-8">
+            <h3 class="text-xl font-bold mb-4 flame-text">Recent Activity</h3>
+            
+            <?php
+            // Fetch user's recent activity (reading history, bookmarks, etc.)
+            $recentActivity = fetchAll("
+                SELECT 
+                    'read' as type,
+                    c.comic_id,
+                    c.title,
+                    c.cover_image,
+                    ch.chapter_number,
+                    rh.read_at as activity_date
+                FROM reading_history rh
+                JOIN comics c ON rh.comic_id = c.comic_id
+                JOIN chapters ch ON rh.chapter_id = ch.chapter_id
+                WHERE rh.user_id = ?
+                
+                UNION ALL
+                
+                SELECT 
+                    'bookmark' as type,
+                    c.comic_id,
+                    c.title,
+                    c.cover_image,
+                    NULL as chapter_number,
+                    b.created_at as activity_date
+                FROM bookmarks b
+                JOIN comics c ON b.comic_id = c.comic_id
+                WHERE b.user_id = ?
+                
+                ORDER BY activity_date DESC
+                LIMIT 5
+            ", [$_SESSION['user_id'], $_SESSION['user_id']]);
+            ?>
+
+            <?php if (!empty($recentActivity)): ?>
+                <div class="space-y-4">
+                    <?php foreach ($recentActivity as $activity): ?>
+                        <div class="flex items-center gap-4 p-4 bg-wine/10 rounded-lg hover:bg-wine/20 transition-colors">
+                            <!-- Comic Cover -->
+                            <img 
+                                src="../assets/cover/<?= htmlspecialchars($activity['cover_image']) ?>" 
+                                alt="<?= htmlspecialchars($activity['title']) ?>" 
+                                class="w-16 h-24 object-cover rounded"
+                            >
+                            
+                            <!-- Activity Info -->
+                            <div class="flex-1">
+                                <h4 class="font-semibold text-flame">
+                                    <?= htmlspecialchars($activity['title']) ?>
+                                </h4>
+                                <p class="text-sm text-gray-400">
+                                    <?php if ($activity['type'] === 'read'): ?>
+                                        Read Chapter <?= htmlspecialchars($activity['chapter_number']) ?>
+                                    <?php else: ?>
+                                        Added to Library
+                                    <?php endif; ?>
+                                </p>
+                                <p class="text-xs text-gray-500">
+                                    <?= date('M d, Y H:i', strtotime($activity['activity_date'])) ?>
+                                </p>
+                            </div>
+                            
+                            <!-- Action Button -->
+                            <a href="../comic-detail.php?id=<?= $activity['comic_id'] ?>" 
+                               class="px-4 py-2 bg-flame text-white rounded hover:bg-crimson transition-colors">
+                                <?= $activity['type'] === 'read' ? 'Continue' : 'Read' ?>
+                            </a>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-gray-400 text-center py-8">No recent activity yet.</p>
+            <?php endif; ?>
+        </div>
     </main>
 
     <script>

@@ -258,22 +258,69 @@
 <body class="bg-dark font-main text-gray-200">
     <!-- Navbar (sama seperti index.php) -->
     <nav class="bg-dark/90 backdrop-blur-md border-b border-wine/30 fixed w-full z-50">
-        <div class="container mx-auto px-4">
-            <div class="flex justify-between items-center py-4">
-                <div class="flex items-center space-x-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-flame" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                    </svg>
-                    <span class="text-2xl font-bold font-fantasy flame-text">DarkVerse</span>
-                </div>
+    <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="index.php" class="text-2xl font-fantasy flame-text">DarkVerse</a>
+                
+                <!-- Navigation -->
                 <div class="hidden md:flex items-center space-x-8">
-                    <a href="index.php" class="text-gray-400 hover:text-flame transition-colors">Home</a>
-                    <a href="collection.php" class="text-gray-400 hover:text-flame transition-colors">Collection</a>
-                    <a href="genre.php" class="text-gray-400 hover:text-flame transition-colors">Genre</a>
-                    <a href="#" class="text-gray-400 hover:text-flame transition-colors">Latest</a>
+                    <a href="index.php" class="text-gray-300 hover:text-flame">Home</a>
+                    <a href="collection.php" class="text-gray-300 hover:text-flame">Collection</a>
+                    <a href="genre.php" class="text-gray-300 hover:text-flame">Genres</a>
+                    <a href="latest.php" class="text-gray-300 hover:text-flame">Latest</a>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <button class="btn-glow bg-blood text-white px-6 py-2 rounded hover:bg-crimson transition-colors">Login</button>
+
+                <!-- Search & Auth -->
+                <div class="flex items-center gap-4">
+                    <div class="relative">
+                        <input 
+                            type="text" 
+                            placeholder="Search comics..." 
+                            class="bg-dark/50 border border-wine/30 rounded-lg pl-4 pr-10 py-1 focus:outline-none focus:border-flame w-48"
+                        >
+                        <button class="absolute right-3 top-1/2 -translate-y-1/2">
+                            🔍
+                        </button>
+                    </div>
+
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <!-- User is logged in -->
+                        <div class="relative group">
+                            <button class="flex items-center gap-2 hover:text-flame">
+                                <img 
+                                    src="assets/images/avatars/<?= htmlspecialchars($_SESSION['avatar']) ?>" 
+                                    alt="Avatar" 
+                                    class="w-8 h-8 rounded-full border border-wine/30"
+                                >
+                                <span><?= htmlspecialchars($_SESSION['username']) ?></span>
+                            </button>
+                            <!-- Dropdown Menu -->
+                            <div class="absolute right-0 mt-2 w-48 bg-dark border border-wine/30 rounded-lg shadow-lg py-2 hidden group-hover:block">
+                                <a href="user/dashboard.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Dashboard
+                                </a>
+                                <a href="user/profile.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    Profile
+                                </a>
+                                <a href="user/library.php" class="block px-4 py-2 text-gray-300 hover:bg-wine/20 hover:text-flame">
+                                    My Library
+                                </a>
+                                <hr class="my-2 border-wine/30">
+                                <a href="logout.php" class="block px-4 py-2 text-flame hover:bg-wine/20">
+                                    Logout
+                                </a>
+                            </div>
+                        </div>
+                    <?php else: ?>
+                        <!-- User is not logged in -->
+                        <div class="flex items-center gap-4">
+                            <a href="login.php" class="text-gray-300 hover:text-flame">Login</a>
+                            <a href="register.php" class="bg-flame text-white px-4 py-1 rounded-lg hover:bg-crimson transition-colors">
+                                Sign Up
+                            </a>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>

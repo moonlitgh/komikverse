@@ -1,0 +1,17 @@
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^(.*)$ index.php [L]
+
+# Prevent direct access to .php files
+<Files *.php>
+    Order Deny,Allow
+    Deny from all
+    Allow from 127.0.0.1
+</Files>
+
+# Allow access to specific files
+<Files dashboard.php>
+    Order Allow,Deny
+    Allow from all
+</Files> 
