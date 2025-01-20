@@ -1,3 +1,56 @@
+<?php
+require_once 'config.php';
+
+// Handle filter by genre
+$selectedGenre = isset($_GET['genre']) ? sanitize($_GET['genre']) : '';
+$searchQuery = isset($_GET['search']) ? sanitize($_GET['search']) : '';
+
+// Base query
+$baseQuery = "
+    SELECT 
+        c.*,
+        GROUP_CONCAT(DISTINCT g.name) as genres,
+        COUNT(DISTINCT ch.chapter_id) as chapter_count,
+        AVG(r.rating) as avg_rating
+    FROM comics c
+    LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+    LEFT JOIN genres g ON cg.genre_id = g.genre_id
+    LEFT JOIN chapters ch ON c.comic_id = ch.comic_id
+    LEFT JOIN ratings r ON c.comic_id = r.comic_id
+";
+
+// Add WHERE clause based on filters
+$whereConditions = [];
+$params = [];
+
+if ($selectedGenre) {
+    $whereConditions[] = "EXISTS (
+        SELECT 1 FROM comic_genres cg2 
+        JOIN genres g2 ON cg2.genre_id = g2.genre_id 
+        WHERE cg2.comic_id = c.comic_id AND g2.name = ?
+    )";
+    $params[] = $selectedGenre;
+}
+
+if ($searchQuery) {
+    $whereConditions[] = "(c.title LIKE ? OR c.author LIKE ?)";
+    $params[] = "%$searchQuery%";
+    $params[] = "%$searchQuery%";
+}
+
+if (!empty($whereConditions)) {
+    $baseQuery .= " WHERE " . implode(" AND ", $whereConditions);
+}
+
+$baseQuery .= " GROUP BY c.comic_id ORDER BY c.created_at DESC";
+
+// Fetch filtered comics
+$comics = fetchAll($baseQuery, $params);
+
+// Fetch all genres for filter buttons
+$genres = fetchAll("SELECT * FROM genres ORDER BY name");
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -283,19 +336,41 @@
     <section class="pt-24 pb-12 dark-gradient relative overflow-hidden">
         <div class="container mx-auto px-4 relative z-10">
             <h1 class="text-4xl md:text-5xl font-bold mb-4 font-fantasy text-white text-center">Comic Collection</h1>
-            <!-- Filter & Search -->
+            
+            <!-- Search & Filter -->
             <div class="max-w-2xl mx-auto mt-8">
-                <div class="flex gap-4 flex-wrap justify-center mb-6">
-                    <input type="text" placeholder="Search comics..." class="bg-dark/50 border border-wine/30 rounded px-4 py-2 focus:outline-none focus:border-flame flex-1">
-                    <button class="btn-glow bg-flame text-white px-6 py-2 rounded">Search</button>
-                </div>
+                <form action="" method="GET" class="flex gap-4 flex-wrap justify-center mb-6">
+                    <input 
+                        type="text" 
+                        name="search" 
+                        placeholder="Search comics..." 
+                        value="<?= htmlspecialchars($searchQuery) ?>"
+                        class="bg-dark/50 border border-wine/30 rounded px-4 py-2 focus:outline-none focus:border-flame flex-1"
+                    >
+                    <button type="submit" class="btn-glow bg-flame text-white px-6 py-2 rounded">Search</button>
+                </form>
+
                 <!-- Filter Tags -->
                 <div class="flex flex-wrap gap-3 justify-center">
-                    <button class="bg-blood/20 text-flame text-sm px-4 py-1 rounded-full hover:bg-blood/30">All</button>
-                    <button class="bg-dark text-gray-400 text-sm px-4 py-1 rounded-full hover:bg-blood/20 hover:text-flame">Action</button>
-                    <button class="bg-dark text-gray-400 text-sm px-4 py-1 rounded-full hover:bg-blood/20 hover:text-flame">Fantasy</button>
-                    <button class="bg-dark text-gray-400 text-sm px-4 py-1 rounded-full hover:bg-blood/20 hover:text-flame">Horror</button>
-                    <button class="bg-dark text-gray-400 text-sm px-4 py-1 rounded-full hover:bg-blood/20 hover:text-flame">Adventure</button>
+                    <a href="?<?= $searchQuery ? 'search=' . urlencode($searchQuery) : '' ?>" 
+                       class="<?= !$selectedGenre ? 'bg-blood/20 text-flame' : 'bg-dark text-gray-400 hover:bg-blood/20 hover:text-flame' ?> 
+                              text-sm px-4 py-1 rounded-full transition-colors">
+                        All
+                    </a>
+                    <?php foreach ($genres as $genre): ?>
+                        <a href="?genre=<?= urlencode($genre['name']) ?><?= $searchQuery ? '&search=' . urlencode($searchQuery) : '' ?>" 
+                           class="<?= $selectedGenre === $genre['name'] ? 'bg-blood/20 text-flame' : 'bg-dark text-gray-400 hover:bg-blood/20 hover:text-flame' ?> 
+                                  text-sm px-4 py-1 rounded-full transition-colors">
+                            <?= htmlspecialchars($genre['name']) ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+
+                <!-- Results count -->
+                <div class="text-center mt-6 text-gray-400">
+                    <?= count($comics) ?> Comics found
+                    <?= $selectedGenre ? "in " . htmlspecialchars($selectedGenre) : "" ?>
+                    <?= $searchQuery ? "matching \"" . htmlspecialchars($searchQuery) . "\"" : "" ?>
                 </div>
             </div>
         </div>
@@ -304,51 +379,65 @@
     <!-- Collection Grid -->
     <section class="py-16">
         <div class="container mx-auto px-4">
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                <!-- Comic Card -->
-                <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
-                    <div class="relative group">
-                        <img src="assets/images/comic1.jpg" alt="Comic Cover" class="w-full h-72 object-cover">
-                        <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                            <div class="w-full">
-                                <button class="w-full bg-flame text-white py-2 rounded mb-2">Read Now</button>
-                                <button class="w-full border border-wine text-gray-300 py-2 rounded hover:bg-wine/20">Add to Library</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="p-4">
-                        <h3 class="font-semibold text-lg mb-2 text-flame">Demon's Path</h3>
-                        <p class="text-gray-400 text-sm mb-2">By Dark Author</p>
-                        <div class="flex items-center justify-between">
-                            <div class="flex gap-2">
-                                <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">Fantasy</span>
-                                <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">Action</span>
-                            </div>
-                            <span class="text-gray-400 text-sm">⭐ 4.8</span>
-                        </div>
-                    </div>
+            <?php if (empty($comics)): ?>
+                <div class="text-center py-12">
+                    <p class="text-gray-400 text-lg">No comics found matching your criteria.</p>
+                    <a href="collection.php" class="inline-block mt-4 bg-flame text-white px-6 py-2 rounded">View All Comics</a>
                 </div>
-
-                <!-- Additional Comic Cards (Copy and modify the above card) -->
-                <!-- Add more cards with different images and details -->
-            </div>
-
-            <!-- Pagination -->
-            <div class="flex justify-center mt-12 space-x-2">
-                <button class="w-10 h-10 flex items-center justify-center rounded border border-wine text-gray-400 hover:bg-wine/20 hover:text-flame">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                    </svg>
-                </button>
-                <button class="w-10 h-10 flex items-center justify-center rounded bg-flame text-white">1</button>
-                <button class="w-10 h-10 flex items-center justify-center rounded border border-wine text-gray-400 hover:bg-wine/20 hover:text-flame">2</button>
-                <button class="w-10 h-10 flex items-center justify-center rounded border border-wine text-gray-400 hover:bg-wine/20 hover:text-flame">3</button>
-                <button class="w-10 h-10 flex items-center justify-center rounded border border-wine text-gray-400 hover:bg-wine/20 hover:text-flame">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                </button>
-            </div>
+            <?php else: ?>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                    <?php foreach ($comics as $comic): ?>
+                        <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                            <div class="relative group">
+                                <img 
+                                    src="assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
+                                    alt="<?= htmlspecialchars($comic['title']) ?>" 
+                                    class="w-full h-72 object-cover"
+                                >
+                                <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                                    <div class="space-y-2 w-full">
+                                        <a href="read.php?id=<?= $comic['comic_id'] ?>" class="block w-full bg-flame text-white text-center py-2 rounded">Read Now</a>
+                                        <button class="w-full bg-dark/80 text-white py-2 rounded border border-wine/30">Add to Library</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="p-4">
+                                <h3 class="font-semibold text-lg mb-2 text-flame"><?= htmlspecialchars($comic['title']) ?></h3>
+                                <p class="text-gray-400 text-sm mb-2"><?= htmlspecialchars($comic['author']) ?></p>
+                                <div class="flex items-center justify-between">
+                                    <div class="flex gap-2">
+                                        <?php 
+                                        if (!empty($comic['genres'])) {
+                                            $comicGenres = explode(',', $comic['genres']);
+                                            $firstTwoGenres = array_slice($comicGenres, 0, 2);
+                                            foreach ($firstTwoGenres as $genre): 
+                                        ?>
+                                            <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
+                                                <?= htmlspecialchars(trim($genre)) ?>
+                                            </span>
+                                        <?php 
+                                            endforeach;
+                                        } else {
+                                        ?>
+                                            <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
+                                                Uncategorized
+                                            </span>
+                                        <?php 
+                                        } 
+                                        ?>
+                                    </div>
+                                    <span class="text-gray-400 text-sm">
+                                        <?= $comic['avg_rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['avg_rating'], 1) ?>
+                                    </span>
+                                </div>
+                                <div class="mt-2 text-xs text-gray-400">
+                                    <?= $comic['chapter_count'] ?> Chapter<?= $comic['chapter_count'] != 1 ? 's' : '' ?>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </section>
 
@@ -384,7 +473,7 @@
                             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
                         </a>
                         <a href="#" class="text-gray-400 hover:text-flame transition-colors">
-                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
                         </a>
                     </div>
                 </div>
@@ -463,6 +552,19 @@
             setInterval(createRaven, 3000);
         });
         
+        // Optional: Add active class to current filter
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentGenre = urlParams.get('genre');
+            
+            if (currentGenre) {
+                document.querySelectorAll('.filter-btn').forEach(btn => {
+                    if (btn.textContent.trim() === currentGenre) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html> 

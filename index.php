@@ -1,3 +1,53 @@
+<?php
+require_once 'config.php';
+
+// Fetch hot comics
+$hotComics = fetchAll("
+    SELECT c.*, GROUP_CONCAT(g.name) as genres 
+    FROM comics c 
+    LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id 
+    LEFT JOIN genres g ON cg.genre_id = g.genre_id 
+    WHERE c.is_featured = 1 
+    GROUP BY c.comic_id 
+    ORDER BY COALESCE(c.rating, 0) DESC, c.view_count DESC 
+    LIMIT 4
+");
+
+// Fetch latest updates
+$latestUpdates = fetchAll("
+    SELECT 
+        c.comic_id, 
+        c.title, 
+        c.cover_image, 
+        c.created_at,
+        COALESCE(ch.chapter_number, 'New') as chapter_number,
+        GROUP_CONCAT(g.name) as genres
+    FROM comics c
+    LEFT JOIN chapters ch ON c.comic_id = ch.comic_id
+    LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+    LEFT JOIN genres g ON cg.genre_id = g.genre_id
+    GROUP BY c.comic_id
+    ORDER BY c.created_at DESC
+    LIMIT 5
+");
+
+// Fetch trending comics
+$trendingComics = fetchAll("
+    SELECT c.*, GROUP_CONCAT(g.name) as genres,
+           (SELECT COUNT(*) FROM reading_history rh WHERE rh.comic_id = c.comic_id 
+            AND rh.last_read >= DATE_SUB(NOW(), INTERVAL 24 HOUR)) as daily_views
+    FROM comics c
+    LEFT JOIN comic_genres cg ON c.comic_id = cg.comic_id
+    LEFT JOIN genres g ON cg.genre_id = g.genre_id
+    GROUP BY c.comic_id
+    ORDER BY daily_views DESC, c.rating DESC
+    LIMIT 5
+");
+
+// Fetch all genres
+$genres = fetchAll("SELECT * FROM genres ORDER BY name");
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -307,22 +357,34 @@
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text text-center font-fantasy">Hot Comics</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
-                <!-- Hot Comic Card -->
-                <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
-                    <div class="relative">
-                        <img src="assets/images/comic1.jpg" alt="Comic Cover" class="w-full h-64 object-cover">
-                        <span class="absolute top-2 right-2 bg-flame text-white text-xs px-2 py-1 rounded">HOT 🔥</span>
-                    </div>
-                    <div class="p-4">
-                        <h3 class="font-semibold text-lg mb-2 text-flame">Comic Title</h3>
-                        <p class="text-gray-400 text-sm mb-2">Author</p>
-                        <div class="flex items-center justify-between">
-                            <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">Fantasy</span>
-                            <span class="text-gray-400 text-sm">⭐ 4.8</span>
+                <?php foreach ($hotComics as $comic): ?>
+                    <div class="card-hover glow-border bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                        <div class="relative">
+                            <img 
+                                src="assets/images/comics/<?= htmlspecialchars($comic['cover_image']) ?>" 
+                                alt="<?= htmlspecialchars($comic['title']) ?>" 
+                                class="w-full h-64 object-cover"
+                            >
+                            <span class="absolute top-2 right-2 bg-flame text-white text-xs px-2 py-1 rounded">HOT 🔥</span>
+                        </div>
+                        <div class="p-4">
+                            <h3 class="font-semibold text-lg mb-2 text-flame"><?= htmlspecialchars($comic['title']) ?></h3>
+                            <p class="text-gray-400 text-sm mb-2"><?= htmlspecialchars($comic['author']) ?></p>
+                            <div class="flex items-center justify-between">
+                                <?php 
+                                $genreArray = explode(',', $comic['genres']);
+                                $firstGenre = reset($genreArray);
+                                ?>
+                                <span class="bg-blood/20 text-flame text-xs px-2 py-1 rounded">
+                                    <?= htmlspecialchars($firstGenre) ?>
+                                </span>
+                                <span class="text-gray-400 text-sm">
+                                    <?= $comic['rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['rating'], 1) ?>
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </div>
-                <!-- Repeat for more hot comics -->
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
@@ -335,71 +397,69 @@
                 <div>
                     <h2 class="text-3xl font-bold mb-6 flame-text font-fantasy">Latest Updates</h2>
                     <div class="space-y-4">
-                        <!-- Latest Comic Item -->
-                        <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
-                            <img src="assets/images/latest1.jpg" alt="Latest Comic" class="w-24 h-32 object-cover rounded">
-                            <div class="flex-1">
-                                <h3 class="font-semibold text-flame mb-2">Comic Title</h3>
-                                <p class="text-gray-400 text-sm mb-2">Chapter 123</p>
-                                <p class="text-gray-500 text-xs">Updated 2 hours ago</p>
+                        <?php foreach ($latestUpdates as $update): ?>
+                            <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
+                                <img 
+                                    src="assets/cover/<?= htmlspecialchars($update['cover_image']) ?>" 
+                                    alt="<?= htmlspecialchars($update['title']) ?>" 
+                                    class="w-24 h-32 object-cover rounded"
+                                >
+                                <div class="flex-1">
+                                    <h3 class="font-semibold text-flame mb-2"><?= htmlspecialchars($update['title']) ?></h3>
+                                    <p class="text-gray-400 text-sm mb-2">
+                                        <?= $update['chapter_number'] === 'New' ? 'New Release' : 'Chapter ' . $update['chapter_number'] ?>
+                                    </p>
+                                    <p class="text-gray-500 text-xs">
+                                        Added <?= formatDate($update['created_at']) ?>
+                                    </p>
+                                </div>
                             </div>
-                        </div>
-                        <!-- Repeat for more latest comics -->
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
                 <!-- Trending Comics -->
                 <div>
                     <h2 class="text-3xl font-bold mb-6 flame-text font-fantasy">Trending</h2>
-                    <!-- Trending Tabs -->
-                    <div class="flex gap-4 mb-6">
-                        <button class="text-flame border-b-2 border-flame px-4 py-2">Daily</button>
-                        <button class="text-gray-400 hover:text-flame px-4 py-2">Weekly</button>
-                        <button class="text-gray-400 hover:text-flame px-4 py-2">Monthly</button>
-                    </div>
-                    <!-- Trending List -->
                     <div class="space-y-4">
-                        <!-- Trending Comic Item -->
-                        <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
-                            <div class="flex items-center justify-center w-8">
-                                <span class="text-flame font-bold">1</span>
-                            </div>
-                            <img src="assets/images/trending1.jpg" alt="Trending Comic" class="w-20 h-28 object-cover rounded">
-                            <div class="flex-1">
-                                <h3 class="font-semibold text-flame mb-1">Comic Title</h3>
-                                <p class="text-gray-400 text-sm mb-1">Author</p>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs text-gray-400">⭐ 4.9</span>
-                                    <span class="text-xs text-flame">▲ 12%</span>
+                        <?php foreach ($trendingComics as $index => $comic): ?>
+                            <div class="flex gap-4 card-hover bg-dark border border-wine/30 rounded-lg p-3">
+                                <div class="flex items-center justify-center w-8">
+                                    <span class="text-flame font-bold"><?= $index + 1 ?></span>
+                                </div>
+                                <img 
+                                    src="assets/cover/<?= htmlspecialchars($comic['cover_image']) ?>" 
+                                    alt="<?= htmlspecialchars($comic['title']) ?>" 
+                                    class="w-20 h-28 object-cover rounded"
+                                >
+                                <div class="flex-1">
+                                    <h3 class="font-semibold text-flame mb-1"><?= htmlspecialchars($comic['title']) ?></h3>
+                                    <p class="text-gray-400 text-sm mb-1"><?= htmlspecialchars($comic['author']) ?></p>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-gray-400">
+                                            <?= $comic['rating'] === null ? '⭐ N/A' : '⭐ ' . number_format($comic['rating'], 1) ?>
+                                        </span>
+                                        <span class="text-xs text-flame">▲ <?= $comic['daily_views'] ?> today</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        <!-- Repeat for more trending comics -->
+                        <?php endforeach; ?>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-
-
-    <!-- Genre Section -->
-    <section class="py-16 bg-gradient-to-b from-dark to-wine/20">
+    <!-- Genres Section -->
+    <section class="py-16">
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text text-center font-fantasy">Dark Genres</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div class="card-hover glow-border bg-dark border border-wine/30 p-6 rounded-lg text-center">
-                    <span class="text-flame font-semibold">Fantasy</span>
-                </div>
-                <div class="card-hover glow-border bg-dark border border-wine/30 p-6 rounded-lg text-center">
-                    <span class="text-flame font-semibold">Adventure</span>
-                </div>
-                <div class="card-hover glow-border bg-dark border border-wine/30 p-6 rounded-lg text-center">
-                    <span class="text-flame font-semibold">Horror</span>
-                </div>
-                <div class="card-hover glow-border bg-dark border border-wine/30 p-6 rounded-lg text-center">
-                    <span class="text-flame font-semibold">Action</span>
-                </div>
+                <?php foreach ($genres as $genre): ?>
+                    <div class="card-hover glow-border bg-dark border border-wine/30 p-6 rounded-lg text-center">
+                        <span class="text-flame font-semibold"><?= htmlspecialchars($genre['name']) ?></span>
+                    </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
@@ -436,7 +496,7 @@
                             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
                         </a>
                         <a href="#" class="text-gray-400 hover:text-flame transition-colors">
-                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
                         </a>
                     </div>
                 </div>

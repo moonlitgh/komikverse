@@ -1,3 +1,37 @@
+<?php
+require_once 'config.php';
+
+// Fetch all genres with comic count
+$genres = fetchAll("
+    SELECT 
+        g.*,
+        COUNT(DISTINCT cg.comic_id) as comic_count,
+        GROUP_CONCAT(DISTINCT c.title SEPARATOR '||') as sample_comics,
+        GROUP_CONCAT(DISTINCT c.cover_image SEPARATOR '||') as sample_covers
+    FROM genres g
+    LEFT JOIN comic_genres cg ON g.genre_id = cg.genre_id
+    LEFT JOIN comics c ON cg.comic_id = c.comic_id
+    GROUP BY g.genre_id
+    ORDER BY comic_count DESC
+");
+
+// Fetch popular genre combinations
+$genreCombinations = fetchAll("
+    SELECT 
+        g1.name as genre1,
+        g2.name as genre2,
+        COUNT(*) as combination_count
+    FROM comic_genres cg1
+    JOIN comic_genres cg2 ON cg1.comic_id = cg2.comic_id AND cg1.genre_id < cg2.genre_id
+    JOIN genres g1 ON cg1.genre_id = g1.genre_id
+    JOIN genres g2 ON cg2.genre_id = g2.genre_id
+    GROUP BY g1.genre_id, g2.genre_id
+    HAVING combination_count > 1
+    ORDER BY combination_count DESC
+    LIMIT 8
+");
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -291,82 +325,98 @@
     <section class="py-16">
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text font-fantasy">Popular Genres</h2>
-            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                <!-- Popular Genre Card -->
-                <div class="card-hover relative group">
-                    <div class="relative h-48 rounded-lg overflow-hidden">
-                        <img src="assets/images/action-genre.jpg" alt="Action Genre" class="w-full h-full object-cover">
-                        <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
-                        <div class="absolute inset-0 bg-flame/20 group-hover:bg-flame/40 transition-all duration-300"></div>
-                        <div class="absolute bottom-4 left-4">
-                            <h3 class="text-xl font-bold text-white">Action</h3>
-                            <p class="text-sm text-gray-200">238 Comics</p>
-                        </div>
-                    </div>
-                </div>
-                <!-- Repeat for other popular genres -->
-            </div>
-        </div>
-    </section>
-
-    <!-- All Genres List -->
-    <section class="py-16 bg-wine/5">
-        <div class="container mx-auto px-4">
-            <h2 class="text-3xl font-bold mb-8 flame-text font-fantasy">All Genres</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                <!-- Genre Category -->
-                <div class="bg-dark border border-wine/30 rounded-lg p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h3 class="text-xl font-bold text-flame">Adventure</h3>
-                        <span class="text-gray-400 text-sm">156 Comics</span>
-                    </div>
-                    <p class="text-gray-400 text-sm mb-4">Epic journeys and thrilling quests await in these adventure-packed stories.</p>
-                    <div class="flex flex-wrap gap-2">
-                        <span class="text-xs bg-blood/20 text-flame px-2 py-1 rounded">Fantasy Adventure</span>
-                        <span class="text-xs bg-blood/20 text-flame px-2 py-1 rounded">Exploration</span>
-                        <span class="text-xs bg-blood/20 text-flame px-2 py-1 rounded">Quest</span>
-                    </div>
-                    <!-- Top Comics in Genre -->
-                    <div class="mt-4 space-y-2">
-                        <div class="flex items-center gap-3 p-2 hover:bg-wine/10 rounded">
-                            <img src="assets/images/comic1.jpg" alt="Comic" class="w-12 h-16 object-cover rounded">
-                            <div>
-                                <h4 class="font-semibold text-gray-200">Comic Title</h4>
-                                <p class="text-xs text-gray-400">⭐ 4.8</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <?php foreach ($genres as $genre): 
+                    // Handle NULL values for sample comics and covers
+                    $sampleComics = !empty($genre['sample_comics']) ? explode('||', $genre['sample_comics']) : [];
+                    $sampleCovers = !empty($genre['sample_covers']) ? explode('||', $genre['sample_covers']) : [];
+                    
+                    // Get up to 3 sample comics/covers
+                    $sampleComics = array_slice($sampleComics, 0, 3);
+                    $sampleCovers = array_slice($sampleCovers, 0, 3);
+                ?>
+                    <div class="card-hover bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                        <div class="relative h-48">
+                            <!-- Genre Cover Collage -->
+                            <div class="absolute inset-0 grid grid-cols-3 gap-1">
+                                <?php if (empty($sampleCovers)): ?>
+                                    <!-- Default background when no covers available -->
+                                    <div class="col-span-3 bg-wine/20"></div>
+                                <?php else: ?>
+                                    <?php foreach ($sampleCovers as $cover): ?>
+                                        <div class="bg-wine/20">
+                                            <img 
+                                                src="assets/cover/<?= htmlspecialchars($cover) ?>" 
+                                                alt="Sample Cover" 
+                                                class="w-full h-full object-cover opacity-60"
+                                            >
+                                        </div>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
+                            </div>
+                            <!-- Genre Info Overlay -->
+                            <div class="absolute inset-0 bg-gradient-to-t from-dark via-dark/80 to-transparent p-4 flex flex-col justify-end">
+                                <h3 class="text-2xl font-bold text-flame font-fantasy"><?= htmlspecialchars($genre['name']) ?></h3>
+                                <p class="text-gray-400"><?= $genre['comic_count'] ?> Comics</p>
                             </div>
                         </div>
-                        <!-- Repeat for more comics -->
+                        <div class="p-4">
+                            <p class="text-gray-400 text-sm mb-4"><?= htmlspecialchars($genre['description']) ?></p>
+                            <div class="flex flex-wrap gap-2">
+                                <?php if (!empty($sampleComics)): ?>
+                                    <?php foreach ($sampleComics as $comic): ?>
+                                        <span class="text-xs bg-blood/20 text-flame px-2 py-1 rounded">
+                                            <?= htmlspecialchars($comic) ?>
+                                        </span>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <span class="text-xs text-gray-400">No comics in this genre yet</span>
+                                <?php endif; ?>
+                            </div>
+                            <a 
+                                href="collection.php?genre=<?= urlencode($genre['name']) ?>" 
+                                class="block w-full text-center bg-flame text-white py-2 rounded mt-4 hover:bg-crimson transition-colors"
+                            >
+                                Browse Genre
+                            </a>
+                        </div>
                     </div>
-                </div>
-                <!-- Repeat for other genres -->
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
 
-    <!-- Genre Combinations -->
-    <section class="py-16">
+    <!-- Popular Combinations -->
+    <section class="py-16 bg-wine/5">
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text font-fantasy">Popular Genre Combinations</h2>
-            <div class="flex flex-wrap gap-4 justify-center">
-                <a href="#" class="flex items-center gap-2 bg-dark border border-wine/30 rounded-full px-6 py-3 hover:bg-wine/20 transition-colors">
-                    <span class="text-flame">Action</span>
-                    <span class="text-gray-400">+</span>
-                    <span class="text-flame">Fantasy</span>
-                    <span class="text-xs text-gray-400 ml-2">(124)</span>
-                </a>
-                <!-- Add more combinations -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <?php foreach ($genreCombinations as $combo): ?>
+                    <a href="collection.php?genres[]=<?= urlencode($combo['genre1']) ?>&genres[]=<?= urlencode($combo['genre2']) ?>" 
+                       class="card-hover bg-dark border border-wine/30 rounded-lg p-4 text-center">
+                        <span class="text-flame"><?= htmlspecialchars($combo['genre1']) ?></span>
+                        <span class="text-gray-400">+</span>
+                        <span class="text-flame"><?= htmlspecialchars($combo['genre2']) ?></span>
+                        <span class="text-xs text-gray-400 block mt-2"><?= $combo['combination_count'] ?> Comics</span>
+                    </a>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
 
     <!-- Genre Map -->
-    <section class="py-16 bg-wine/5">
+    <section class="py-16">
         <div class="container mx-auto px-4">
             <h2 class="text-3xl font-bold mb-8 flame-text font-fantasy">Genre Map</h2>
             <div class="relative h-[600px] bg-dark border border-wine/30 rounded-lg p-6">
-                <!-- Interactive genre map visualization -->
-                <div class="absolute inset-0 flex items-center justify-center">
-                    <p class="text-gray-400">Interactive genre map coming soon...</p>
+                <!-- Genre map visualization -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 h-full">
+                    <?php foreach ($genres as $genre): ?>
+                        <div class="flex flex-col items-center justify-center text-center p-4 rounded-lg bg-wine/10 hover:bg-wine/20 transition-colors">
+                            <span class="text-flame font-semibold mb-2"><?= htmlspecialchars($genre['name']) ?></span>
+                            <span class="text-gray-400 text-sm"><?= $genre['comic_count'] ?> Comics</span>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </div>
@@ -404,7 +454,7 @@
                             <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M24 4.557c-.883.392-1.832.656-2.828.775 1.017-.609 1.798-1.574 2.165-2.724-.951.564-2.005.974-3.127 1.195-.897-.957-2.178-1.555-3.594-1.555-3.179 0-5.515 2.966-4.797 6.045-4.091-.205-7.719-2.165-10.148-5.144-1.29 2.213-.669 5.108 1.523 6.574-.806-.026-1.566-.247-2.229-.616-.054 2.281 1.581 4.415 3.949 4.89-.693.188-1.452.232-2.224.084.626 1.956 2.444 3.379 4.6 3.419-2.07 1.623-4.678 2.348-7.29 2.04 2.179 1.397 4.768 2.212 7.548 2.212 9.142 0 14.307-7.721 13.995-14.646.962-.695 1.797-1.562 2.457-2.549z"/></svg>
                         </a>
                         <a href="#" class="text-gray-400 hover:text-flame transition-colors">
-                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
                         </a>
                     </div>
                 </div>
