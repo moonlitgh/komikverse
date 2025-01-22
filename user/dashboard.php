@@ -51,7 +51,8 @@ try {
         SELECT 
             COUNT(DISTINCT rh.comic_id) as comics_read,
             COUNT(DISTINCT b.comic_id) as bookmark_count,
-            (SELECT COUNT(*) FROM collections WHERE user_id = ?) as collection_count
+            (SELECT COUNT(*) FROM collections WHERE user_id = ?) as collection_count,
+            SUM(rh.reading_time) as total_reading_time
         FROM users u
         LEFT JOIN reading_history rh ON u.user_id = rh.user_id
         LEFT JOIN bookmarks b ON u.user_id = b.user_id
@@ -116,6 +117,16 @@ try {
     }
 } catch (Exception $e) {
     error_log("Table creation error: " . $e->getMessage());
+}
+
+function formatReadingTime($seconds) {
+    if (!$seconds) return '0h';
+    $hours = floor($seconds / 3600);
+    $minutes = floor(($seconds % 3600) / 60);
+    if ($hours > 0) {
+        return $hours . 'h ' . ($minutes > 0 ? $minutes . 'm' : '');
+    }
+    return $minutes . 'm';
 }
 ?>
 
@@ -218,7 +229,7 @@ try {
     <!-- Sidebar dengan tema dark fantasy -->
     <aside class="fixed left-0 top-0 h-screen w-64 bg-dark/95 border-r border-wine/30 p-4 fire-bg">
         <div class="mb-8">
-                <h1 class="text-2xl font-fantasy flame-text hover:scale-105 transition-transform">DarkVerse</h1>
+            <h1 class="text-2xl font-fantasy flame-text hover:scale-105 transition-transform">DarkVerse</h1>
         </div>
         
         <!-- User Profile Preview dengan glow effect -->
@@ -229,29 +240,29 @@ try {
                 class="w-12 h-12 rounded-full border-2 border-flame"
             >
             <div>
-                <h3 class="font-semibold text-flame"><?= htmlspecialchars($user['username']) ?></h3>
-                <p class="text-xs text-gray-400"><?= ucfirst($user['membership_type']) ?> Member</p>
+                <h2 class="font-semibold"><?= htmlspecialchars($user['username']) ?></h2>
+                <p class="text-sm text-gray-400">Level <?= $user['level'] ?? 1 ?></p>
             </div>
         </div>
 
-        <!-- Navigation dengan hover effects -->
+        <!-- Navigation Links -->
         <nav class="space-y-2">
-            <a href="#overview" class="flex items-center gap-3 p-3 bg-wine/20 text-flame rounded-lg hover:bg-wine/30 transition-all">
-                <span>📊</span> Overview
+            <a href="dashboard.php" class="flex items-center gap-3 p-3 rounded-lg bg-wine/20 text-flame">
+                <span>📊</span> Dashboard
             </a>
-            <a href="#library" class="flex items-center gap-3 p-3 hover:bg-wine/20 rounded-lg hover:text-flame transition-all">
+            <a href="library.php" class="flex items-center gap-3 p-3 rounded-lg hover:bg-wine/20 hover:text-flame transition-colors">
                 <span>📚</span> My Library
             </a>
-            <a href="#reading-history" class="flex items-center gap-3 p-3 hover:bg-wine/20 rounded-lg hover:text-flame transition-all">
+            <a href="#" class="flex items-center gap-3 p-3 rounded-lg hover:bg-wine/20 hover:text-flame transition-colors">
                 <span>📖</span> Reading History
             </a>
-            <a href="#bookmarks" class="flex items-center gap-3 p-3 hover:bg-wine/20 rounded-lg hover:text-flame transition-all">
+            <a href="#" class="flex items-center gap-3 p-3 rounded-lg hover:bg-wine/20 hover:text-flame transition-colors">
                 <span>🔖</span> Bookmarks
             </a>
-            <a href="#collections" class="flex items-center gap-3 p-3 hover:bg-wine/20 rounded-lg hover:text-flame transition-all">
-                <span>📂</span> Collections
+            <a href="#" class="flex items-center gap-3 p-3 rounded-lg hover:bg-wine/20 hover:text-flame transition-colors">
+                <span>📑</span> Collections
             </a>
-            <a href="#settings" class="flex items-center gap-3 p-3 hover:bg-wine/20 rounded-lg hover:text-flame transition-all">
+            <a href="#" class="flex items-center gap-3 p-3 rounded-lg hover:bg-wine/20 hover:text-flame transition-colors">
                 <span>⚙️</span> Settings
             </a>
         </nav>
@@ -271,7 +282,9 @@ try {
                 </div>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Reading Time</h3>
-                    <p class="text-2xl font-bold text-flame"><?= round($user['comics_read'] * 2, 1) ?>h</p>
+                    <p class="text-2xl font-bold text-flame">
+                        <?= formatReadingTime($userStats['total_reading_time'] ?? 0) ?>
+                    </p>
                 </div>
                 <div class="card-hover bg-dark border border-wine/30 rounded-lg p-6">
                     <h3 class="text-gray-400 mb-2">Bookmarks</h3>
@@ -324,28 +337,71 @@ try {
                 </div>
             </div>
 
-            <!-- Reading Activity dengan flame gradient -->
+            <!-- Reading Activity dengan data dari database -->
             <div class="bg-dark border border-wine/30 rounded-lg p-6">
                 <h3 class="text-xl font-bold mb-4 text-flame">Reading Activity</h3>
+                <?php
+                // Fetch reading activity for last 7 days
+                $readingActivity = fetchAll("
+                    SELECT 
+                        DATE(read_date) as read_day,
+                        COUNT(*) as chapters_read,
+                        SUM(reading_time) as daily_time
+                    FROM reading_history
+                    WHERE user_id = ? 
+                    AND read_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)
+                    GROUP BY DATE(read_date)
+                    ORDER BY read_day ASC
+                ", [$_SESSION['user_id']]);
+
+                // Create array for all 7 days
+                $days = [];
+                for ($i = 6; $i >= 0; $i--) {
+                    $date = date('Y-m-d', strtotime("-$i days"));
+                    $days[$date] = 0;
+                }
+
+                // Fill in actual reading times
+                foreach ($readingActivity as $activity) {
+                    $days[$activity['read_day']] = $activity['daily_time'];
+                }
+
+                // Get max reading time for scaling
+                $maxTime = max($days) ?: 1;
+                ?>
+
                 <div class="h-48 flex items-end gap-2">
-                    <div class="h-full flex items-end gap-2">
-                        <div class="w-8 h-[60%] bg-flame/20 rounded-t"></div>
-                        <div class="w-8 h-[80%] bg-flame/40 rounded-t"></div>
-                        <div class="w-8 h-[40%] bg-flame/20 rounded-t"></div>
-                        <div class="w-8 h-[90%] bg-flame rounded-t"></div>
-                        <div class="w-8 h-[30%] bg-flame/20 rounded-t"></div>
-                        <div class="w-8 h-[70%] bg-flame/60 rounded-t"></div>
-                        <div class="w-8 h-[50%] bg-flame/30 rounded-t"></div>
-                    </div>
+                    <?php foreach ($days as $date => $time): ?>
+                        <?php 
+                        $height = ($time / $maxTime) * 100;
+                        $dayName = date('D', strtotime($date));
+                        $tooltipText = $time > 0 ? formatReadingTime($time) : 'No reading';
+                        ?>
+                        <div class="flex-1 flex flex-col items-center">
+                            <div class="w-full h-[<?= $height ?>%] bg-flame/<?= $time > 0 ? '100' : '20' ?> rounded-t 
+                                        hover:bg-flame/80 transition-colors cursor-pointer relative group">
+                                <!-- Tooltip -->
+                                <div class="absolute bottom-full mb-2 left-1/2 transform -translate-x-1/2 
+                                            bg-darker text-gray-300 px-2 py-1 rounded text-xs whitespace-nowrap
+                                            opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <?= $tooltipText ?>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-sm text-gray-400"><?= $dayName ?></div>
+                        </div>
+                    <?php endforeach; ?>
                 </div>
-                <div class="flex justify-between mt-2 text-sm text-gray-400">
-                    <span>Mon</span>
-                    <span>Tue</span>
-                    <span>Wed</span>
-                    <span>Thu</span>
-                    <span>Fri</span>
-                    <span>Sat</span>
-                    <span>Sun</span>
+
+                <!-- Legend -->
+                <div class="mt-4 flex items-center justify-end gap-4 text-sm text-gray-400">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 bg-flame rounded"></div>
+                        <span>Reading activity</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 bg-flame/20 rounded"></div>
+                        <span>No activity</span>
+                    </div>
                 </div>
             </div>
         </section>
@@ -355,12 +411,9 @@ try {
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-3xl font-bold flame-text font-fantasy">My Library</h2>
                 <div class="flex gap-4">
-                    <button class="px-4 py-2 bg-dark border border-wine/30 rounded-lg hover:bg-wine/10">
-                        Sort by: Recent
-                    </button>
-                    <button class="px-4 py-2 bg-flame text-white rounded-lg">
-                        + Add New
-                    </button>
+                    <a href="my_library.php" class="px-4 py-2 bg-flame text-white rounded-lg hover:bg-crimson">
+                        View All
+                    </a>
                 </div>
             </div>
 

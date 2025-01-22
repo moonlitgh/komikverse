@@ -322,6 +322,36 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
             background: #F42C1D;
             color: white;
         }
+
+        /* Featured Collections hover effect */
+        .collection-card:hover .collection-overlay {
+            opacity: 0.8;
+        }
+
+        .collection-card:hover .collection-title {
+            transform: translateY(-10px);
+        }
+
+        /* Enhanced mist effect */
+        .mist {
+            background: radial-gradient(circle at 50% 50%, 
+                rgba(174, 25, 27, 0.1) 0%,
+                rgba(112, 28, 26, 0.05) 50%,
+                transparent 100%);
+            mix-blend-mode: screen;
+            animation: mistFlow 20s ease-in-out infinite;
+        }
+
+        @keyframes mistFlow {
+            0%, 100% {
+                opacity: 0.3;
+                transform: translateY(0) scale(1);
+            }
+            50% {
+                opacity: 0.6;
+                transform: translateY(-20px) scale(1.1);
+            }
+        }
     </style>
 </head>
 <body class="bg-dark font-main text-gray-200">
@@ -532,6 +562,106 @@ $genres = fetchAll("SELECT * FROM genres ORDER BY name");
                         ?>
                     </div>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Featured Collections Section -->
+    <section class="py-16 bg-dark relative overflow-hidden">
+        <div class="mist absolute inset-0"></div>
+        <div class="container mx-auto px-4 relative z-10">
+            <h2 class="text-3xl font-bold mb-8 flame-text text-center font-fantasy">Featured Collections</h2>
+            
+            <!-- Collection Categories -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+                <!-- Dark Fantasy Collection -->
+                <div class="card-hover bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                    <div class="relative h-48">
+                        <img src="assets/images/collections/dark-fantasy.jpg" alt="Dark Fantasy" class="w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
+                        <h3 class="absolute bottom-4 left-4 text-xl font-bold text-white">Dark Fantasy</h3>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-gray-400 mb-4">Epic tales of darkness, demons, and heroic struggles.</p>
+                        <div class="flex justify-between items-center">
+                            <span class="text-flame">50+ Comics</span>
+                            <a href="#" class="text-sm text-flame hover:text-white transition-colors">Explore →</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Horror Collection -->
+                <div class="card-hover bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                    <div class="relative h-48">
+                        <img src="assets/images/collections/horror.jpg" alt="Horror" class="w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
+                        <h3 class="absolute bottom-4 left-4 text-xl font-bold text-white">Horror</h3>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-gray-400 mb-4">Spine-chilling stories that will keep you awake at night.</p>
+                        <div class="flex justify-between items-center">
+                            <span class="text-flame">40+ Comics</span>
+                            <a href="#" class="text-sm text-flame hover:text-white transition-colors">Explore →</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gothic Collection -->
+                <div class="card-hover bg-dark border border-wine/30 rounded-lg overflow-hidden">
+                    <div class="relative h-48">
+                        <img src="assets/images/collections/gothic.jpg" alt="Gothic" class="w-full h-full object-cover">
+                        <div class="absolute inset-0 bg-gradient-to-t from-dark to-transparent"></div>
+                        <h3 class="absolute bottom-4 left-4 text-xl font-bold text-white">Gothic</h3>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-gray-400 mb-4">Victorian-era darkness meets supernatural mystery.</p>
+                        <div class="flex justify-between items-center">
+                            <span class="text-flame">35+ Comics</span>
+                            <a href="#" class="text-sm text-flame hover:text-white transition-colors">Explore →</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Featured Series -->
+            <div class="text-center mb-8">
+                <h3 class="text-2xl font-bold flame-text mb-2 font-fantasy">Featured Series</h3>
+                <p class="text-gray-400">Handpicked series that define dark storytelling</p>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <?php
+                // Example featured series - In production, this would come from your database
+                $featuredSeries = [
+                    ['title' => 'Crimson Night', 'chapters' => 45, 'rating' => 4.8],
+                    ['title' => 'Dark Souls', 'chapters' => 32, 'rating' => 4.7],
+                    ['title' => 'Gothic Tales', 'chapters' => 28, 'rating' => 4.9],
+                    ['title' => 'Blood Moon', 'chapters' => 56, 'rating' => 4.6],
+                    ['title' => 'Shadow Realm', 'chapters' => 39, 'rating' => 4.8],
+                    ['title' => 'Eternal Darkness', 'chapters' => 41, 'rating' => 4.7],
+                ];
+
+                foreach ($featuredSeries as $series):
+                ?>
+                <div class="card-hover bg-dark border border-wine/30 rounded-lg p-3">
+                    <div class="aspect-[3/4] mb-2 overflow-hidden rounded">
+                        <img src="assets/images/series/placeholder.jpg" alt="<?= htmlspecialchars($series['title']) ?>" 
+                             class="w-full h-full object-cover hover:scale-110 transition-transform duration-300">
+                    </div>
+                    <h4 class="font-semibold text-flame text-sm mb-1"><?= htmlspecialchars($series['title']) ?></h4>
+                    <div class="flex justify-between items-center text-xs text-gray-400">
+                        <span><?= $series['chapters'] ?> Chapters</span>
+                        <span>⭐ <?= number_format($series['rating'], 1) ?></span>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- Call to Action -->
+            <div class="text-center mt-12">
+                <a href="#" class="inline-block bg-flame text-white px-8 py-3 rounded-lg hover:bg-crimson transition-colors">
+                    View All Collections
+                </a>
             </div>
         </div>
     </section>

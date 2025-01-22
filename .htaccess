@@ -1,0 +1,12 @@
+# Basic configuration
+Options +FollowSymLinks
+RewriteEngine On
+
+# Allow access to all files
+<IfModule mod_authz_core.c>
+    Require all granted
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    Allow from all
+</IfModule>

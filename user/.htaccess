@@ -1,7 +1,17 @@
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [L]
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+    Order allow,deny
+    Allow from all
+    Require all granted
+</IfModule>
+
+# Allow access to logged in users
+<Files *.php>
+    Require all granted
+</Files>
 
 # Prevent direct access to .php files
 <Files *.php>
